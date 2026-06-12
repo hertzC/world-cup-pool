@@ -7,7 +7,167 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
-<body class="bg-slate-900 text-slate-100 font-sans p-4 md:p-8">
+<body class="bg-slate-900 text-slate-100 font-sans pb-10">
+
+    <div class="max-w-3xl mx-auto">
+
+        <!-- ── Header ─────────────────────────────────────── -->
+        <div class="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 p-5 text-center shadow-xl">
+            <h1 class="text-2xl font-black uppercase tracking-wider">⚽ Family World Cup Pool</h1>
+            <p class="text-xs text-indigo-100 font-medium mt-0.5">2026 Group Stage Predictions</p>
+        </div>
+
+        <!-- ── Tab Bar ────────────────────────────────────── -->
+        <div class="sticky top-0 z-20 bg-slate-900 border-b border-slate-700 flex">
+            <button onclick="switchTab('standings')" id="tab-standings"
+                class="tab-btn flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 border-indigo-500 text-indigo-400">
+                🏆 Standings
+            </button>
+            <button onclick="switchTab('matches')" id="tab-matches"
+                class="tab-btn flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 border-transparent text-slate-400">
+                ⚽ Matches
+            </button>
+            <button onclick="switchTab('predict')" id="tab-predict"
+                class="tab-btn flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 border-transparent text-slate-400">
+                🔮 Predict
+            </button>
+            <button onclick="switchTab('admin')" id="tab-admin"
+                class="tab-btn flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 border-transparent text-slate-400">
+                🛠️ Admin
+            </button>
+        </div>
+
+        <!-- ── Content ────────────────────────────────────── -->
+        <div class="p-4 md:p-6">
+
+            <!-- STANDINGS ──────────────────────────────────── -->
+            <div id="content-standings">
+                <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 mb-4">
+                    <h2 class="text-lg font-bold text-amber-400 mb-4">🏆 Tournament Standings</h2>
+                    <div id="leaderboard" class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                        <div class="animate-pulse bg-slate-700 h-20 rounded-xl col-span-4"></div>
+                    </div>
+                </div>
+                <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">📋 How Points Work</h3>
+                    <div class="space-y-2">
+                        <div class="flex items-center gap-3">
+                            <span class="w-9 h-9 shrink-0 bg-amber-500 text-slate-900 font-black rounded-lg flex items-center justify-center">5</span>
+                            <span class="text-sm text-slate-300">Exact scoreline (e.g. predict 2–1, result is 2–1)</span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="w-9 h-9 shrink-0 bg-emerald-600 text-white font-black rounded-lg flex items-center justify-center">+1</span>
+                            <span class="text-sm text-slate-300">Correct outcome (win / draw / loss)</span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="w-9 h-9 shrink-0 bg-blue-600 text-white font-black rounded-lg flex items-center justify-center">+1</span>
+                            <span class="text-sm text-slate-300">Exact goals for at least one team</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MATCHES ────────────────────────────────────── -->
+            <div id="content-matches" style="display:none">
+                <div class="flex gap-2 mb-4">
+                    <button onclick="filterMatches('all')" id="filter-all"
+                        class="filter-pill bg-indigo-600 text-white text-xs font-bold px-4 py-1.5 rounded-full">All</button>
+                    <button onclick="filterMatches('upcoming')" id="filter-upcoming"
+                        class="filter-pill bg-slate-700 text-slate-400 text-xs font-bold px-4 py-1.5 rounded-full">Upcoming</button>
+                    <button onclick="filterMatches('finished')" id="filter-finished"
+                        class="filter-pill bg-slate-700 text-slate-400 text-xs font-bold px-4 py-1.5 rounded-full">Finished</button>
+                </div>
+                <div id="matchesList" class="space-y-3">
+                    <div class="animate-pulse bg-slate-700 h-28 rounded-2xl"></div>
+                    <div class="animate-pulse bg-slate-700 h-28 rounded-2xl"></div>
+                    <div class="animate-pulse bg-slate-700 h-28 rounded-2xl"></div>
+                </div>
+            </div>
+
+            <!-- PREDICT ────────────────────────────────────── -->
+            <div id="content-predict" style="display:none">
+                <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+                    <h2 class="text-lg font-bold text-emerald-400 mb-4">🔮 Lock In Your Prediction</h2>
+                    <form id="predictionForm" class="space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <div class="flex justify-between items-center mb-1">
+                                    <label class="text-xs font-bold uppercase text-slate-400">Who Are You?</label>
+                                    <button type="button" onclick="addNewPlayer()" class="text-xs font-bold text-indigo-400 hover:underline">➕ Add New</button>
+                                </div>
+                                <select id="userSelect" required class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 font-semibold text-white outline-none">
+                                    <option value="">Choose name...</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold uppercase text-slate-400 mb-1">Select Match</label>
+                                <select id="matchSelect" required class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-white outline-none">
+                                    <option value="">Loading matches...</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="bg-slate-700/50 p-5 rounded-xl border border-slate-600 flex items-center justify-center gap-6 text-center">
+                            <div>
+                                <span id="homeTeamLabel" class="block text-xs font-bold text-slate-400 mb-2">Home Team</span>
+                                <input type="number" id="predHome" min="0" required
+                                    class="w-20 bg-slate-700 text-center text-2xl font-black rounded-xl p-3 text-white border border-slate-600 outline-none focus:border-emerald-500">
+                            </div>
+                            <span class="text-2xl font-black text-slate-600 mt-5">–</span>
+                            <div>
+                                <span id="awayTeamLabel" class="block text-xs font-bold text-slate-400 mb-2">Away Team</span>
+                                <input type="number" id="predAway" min="0" required
+                                    class="w-20 bg-slate-700 text-center text-2xl font-black rounded-xl p-3 text-white border border-slate-600 outline-none focus:border-emerald-500">
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black py-4 rounded-xl shadow-lg uppercase tracking-wider transition active:scale-95">
+                            Save Prediction 🚀
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- ADMIN ──────────────────────────────────────── -->
+            <div id="content-admin" style="display:none">
+                <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+                    <h2 class="text-sm font-bold text-red-400 uppercase tracking-wider mb-5">🛠️ Parent Scorekeeper Console</h2>
+                    <form id="adminForm" class="space-y-4">
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1">Match to Settle</label>
+                            <select id="adminMatchSelect" class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm text-white outline-none"></select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-2">Final Score</label>
+                            <div class="flex gap-3 items-center">
+                                <div class="flex-1 text-center">
+                                    <span id="adminHomeLabel" class="block text-xs text-slate-500 mb-1">Home</span>
+                                    <input type="number" id="actualHome" min="0" placeholder="0"
+                                        class="w-full bg-slate-700 text-center text-2xl font-black p-3 rounded-xl text-white border border-slate-600 outline-none focus:border-red-500">
+                                </div>
+                                <span class="text-2xl font-black text-slate-600 mt-5">–</span>
+                                <div class="flex-1 text-center">
+                                    <span id="adminAwayLabel" class="block text-xs text-slate-500 mb-1">Away</span>
+                                    <input type="number" id="actualAway" min="0" placeholder="0"
+                                        class="w-full bg-slate-700 text-center text-2xl font-black p-3 rounded-xl text-white border border-slate-600 outline-none focus:border-red-500">
+                                </div>
+                            </div>
+                        </div>
+                        <div id="settleStatus" class="hidden text-xs rounded-xl p-3 leading-relaxed"></div>
+                        <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3 rounded-xl uppercase tracking-wide transition">
+                            Settle Match &amp; Award Points
+                        </button>
+                    </form>
+                    <div class="mt-6 pt-5 border-t border-slate-700 flex justify-between items-center">
+                        <span class="text-xs text-slate-500">Danger zone — clears everything</span>
+                        <button type="button" onclick="resetSystem()"
+                            class="bg-slate-700 hover:bg-red-950 text-red-400 border border-red-900/50 px-3 py-2 rounded-lg text-xs font-bold transition">
+                            🚨 Reset All Scores
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
 
     <div class="max-w-2xl mx-auto space-y-8">
         <div class="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 rounded-3xl p-6 text-center shadow-xl">
@@ -77,180 +237,330 @@
                         </div>
                     </div>
                     <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded-lg text-xs uppercase tracking-wide">
-                        Settle & Calculate
-                    </button>
-                </form>
-
-                <div class="pt-4 border-t border-slate-700 flex justify-between items-center">
-                    <span class="text-xs text-slate-400">Need to start over?</span>
-                    <button type="button" onclick="resetSystem()" class="bg-slate-700 hover:bg-red-950 text-red-400 border border-red-900/50 px-3 py-1.5 rounded-lg text-xs font-bold transition">
-                        🚨 Clear & Reset All Scores
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <script>
-        // ⚠️ INJECT YOUR SUPABASE VALUES HERE
-        const SUPABASE_URL = "https://loksiyqxesuuuhxaxqde.supabase.co/rest/v1/";
-        const SUPABASE_KEY = "sb_publishable_nArAx2yBt6g49arGL-Hg-A_CYO3uxlS";
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const SUPABASE_URL = "https://loksiyqxesuuuhxaxqde.supabase.co";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxva3NpeXF4ZXN1dXVoeGF4cWRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyNTA5NzgsImV4cCI6MjA5NjgyNjk3OH0.bo7pgG6l3cF4A4zfhinqZ0Ni18xiYj3lf8M7ZMY4VwM";
+        const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        async function initApp() {
-            await fetchLeaderboardAndUsers();
-            await populateMatches();
+        // ── Global caches ─────────────────────────────────────
+        let allMatchesCache     = [];
+        let allPredictionsCache = [];
+        let allPlayersCache     = [];
+        let currentFilter       = 'all';
+
+        // ── Tab switching ─────────────────────────────────────
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                b.classList.remove('border-indigo-500', 'text-indigo-400');
+                b.classList.add('border-transparent', 'text-slate-400');
+            });
+            ['standings','matches','predict','admin'].forEach(t => {
+                document.getElementById('content-' + t).style.display = 'none';
+            });
+            document.getElementById('tab-' + tab).classList.remove('border-transparent', 'text-slate-400');
+            document.getElementById('tab-' + tab).classList.add('border-indigo-500', 'text-indigo-400');
+            document.getElementById('content-' + tab).style.display = 'block';
         }
 
-        // Fetches users for both leaderboard UI and selection forms
-        async function fetchLeaderboardAndUsers() {
-            const { data: players, error } = await supabase.from('family_members').select('*').order('total_score', { ascending: false });
-            
-            if (error) {
-                console.error("Error loading players:", error);
+        // ── Filter pills ──────────────────────────────────────
+        function filterMatches(f) {
+            currentFilter = f;
+            document.querySelectorAll('.filter-pill').forEach(p => {
+                p.classList.remove('bg-indigo-600', 'text-white');
+                p.classList.add('bg-slate-700', 'text-slate-400');
+            });
+            document.getElementById('filter-' + f).classList.remove('bg-slate-700', 'text-slate-400');
+            document.getElementById('filter-' + f).classList.add('bg-indigo-600', 'text-white');
+            renderMatchCards();
+        }
+
+        // ── Helpers ───────────────────────────────────────────
+        function parseTeams(label) {
+            const parts = label.split(/ vs\.? /i);
+            return { home: parts[0]?.trim() || label, away: parts[1]?.trim() || '?' };
+        }
+
+        function calcPoints(predH, predA, actH, actA) {
+            if (predH === actH && predA === actA) return 5;
+            let pts = 0;
+            const pOut = predH > predA ? 'W' : predH < predA ? 'L' : 'D';
+            const aOut = actH  > actA  ? 'W' : actH  < actA  ? 'L' : 'D';
+            if (pOut === aOut) pts++;
+            if (predH === actH || predA === actA) pts++;
+            return pts;
+        }
+
+        // ── Init ──────────────────────────────────────────────
+        async function initApp() {
+            await Promise.all([fetchAllData(), populateMatchDropdowns()]);
+        }
+
+        // ── Fetch all data → update caches → re-render ────────
+        async function fetchAllData() {
+            const [matchRes, predRes, playerRes] = await Promise.all([
+                db.from('match_results').select('*').order('id', { ascending: true }),
+                db.from('predictions').select('*'),
+                db.from('family_members').select('*').order('total_score', { ascending: false })
+            ]);
+
+            if (matchRes.error)  console.error('match_results error:', matchRes.error);
+            if (predRes.error)   console.error('predictions error:', predRes.error);
+            if (playerRes.error) console.error('family_members error:', playerRes.error);
+
+            allMatchesCache     = matchRes.data  || [];
+            allPredictionsCache = predRes.data   || [];
+            allPlayersCache     = playerRes.data || [];
+
+            renderLeaderboard();
+            renderUserSelect();
+            renderMatchCards();
+        }
+
+        // ── Leaderboard ───────────────────────────────────────
+        function renderLeaderboard() {
+            const container = document.getElementById('leaderboard');
+            if (!allPlayersCache.length) {
+                container.innerHTML = `<p class="col-span-4 text-center text-slate-500 text-sm py-4">No players found</p>`;
+                return;
+            }
+            const medals = ['🥇','🥈','🥉'];
+            container.innerHTML = allPlayersCache.map((p, i) => `
+                <div class="bg-slate-700 p-4 rounded-2xl border border-slate-600 relative">
+                    <span class="absolute top-2 right-2 text-base leading-none">${medals[i] || ''}</span>
+                    <p class="text-xs font-bold text-slate-300 uppercase truncate pr-5">${p.name}</p>
+                    <p class="text-3xl font-black text-amber-400 mt-1 leading-none">${p.total_score}</p>
+                    <p class="text-xs text-slate-500 mt-0.5">pts</p>
+                </div>`).join('');
+        }
+
+        // ── User select dropdown ──────────────────────────────
+        function renderUserSelect() {
+            const sel = document.getElementById('userSelect');
+            const current = sel.value;
+            sel.innerHTML = '<option value="">Choose name...</option>';
+            allPlayersCache.forEach(p => {
+                sel.innerHTML += `<option value="${p.name}" ${p.name === current ? 'selected' : ''}>${p.name}</option>`;
+            });
+        }
+
+        // ── Match cards ───────────────────────────────────────
+        function renderMatchCards() {
+            const container = document.getElementById('matchesList');
+            if (!container) return;
+
+            let matches = allMatchesCache;
+            if (currentFilter === 'upcoming') matches = matches.filter(m => !m.is_finished);
+            if (currentFilter === 'finished')  matches = matches.filter(m =>  m.is_finished);
+
+            if (!matches.length) {
+                container.innerHTML = `<div class="text-center text-slate-500 py-10 text-sm">No matches found</div>`;
                 return;
             }
 
-            // 1. Render Leaderboard Cards
-            const leaderboardContainer = document.getElementById('leaderboard');
-            leaderboardContainer.innerHTML = '';
-            players.forEach(p => {
-                leaderboardContainer.innerHTML += `
-                    <div class="bg-slate-700 p-4 rounded-xl border border-slate-600">
-                        <p class="text-xs font-bold text-slate-300 uppercase truncate">${p.name}</p>
-                        <p class="text-2xl font-black text-amber-400 mt-1">${p.total_score}<span class="text-xs font-normal text-slate-400">pts</span></p>
-                    </div>`;
-            });
+            container.innerHTML = matches.map(m => {
+                const { home, away } = parseTeams(m.match_label);
+                const preds = allPredictionsCache.filter(p => p.match_label === m.match_label);
 
-            // 2. Populate Dropdown Selection List
-            const userSelect = document.getElementById('userSelect');
-            userSelect.innerHTML = '<option value="">Choose name...</option>';
-            players.forEach(p => {
-                userSelect.innerHTML += `<option value="${p.name}">${p.name}</option>`;
+                const statusBadge = m.is_finished
+                    ? `<span class="shrink-0 bg-emerald-900/70 text-emerald-300 border border-emerald-700/50 text-xs font-bold px-2.5 py-1 rounded-full">✅ ${m.home_score} – ${m.away_score}</span>`
+                    : `<span class="shrink-0 bg-indigo-900/70 text-indigo-300 border border-indigo-700/50 text-xs font-bold px-2.5 py-1 rounded-full">🕐 Upcoming</span>`;
+
+                const playerChips = allPlayersCache.map(player => {
+                    const pred = preds.find(p => p.player_name === player.name);
+                    if (!pred) {
+                        return `<div class="flex flex-col items-center bg-slate-700/50 rounded-xl px-3 py-2 min-w-[68px]">
+                            <span class="text-[10px] font-bold text-slate-500 uppercase">${player.name}</span>
+                            <span class="text-slate-600 font-bold mt-1">–</span>
+                        </div>`;
+                    }
+                    let ptsLine = '';
+                    if (m.is_finished) {
+                        const pts = calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score);
+                        const col = pts === 5 ? 'text-amber-400' : pts > 0 ? 'text-emerald-400' : 'text-slate-500';
+                        ptsLine = `<span class="text-[10px] font-black ${col} mt-0.5">${pts}pt${pts !== 1 ? 's' : ''}</span>`;
+                    }
+                    return `<div class="flex flex-col items-center bg-slate-700 rounded-xl px-3 py-2 min-w-[68px] border border-slate-600">
+                        <span class="text-[10px] font-bold text-slate-400 uppercase">${player.name}</span>
+                        <span class="text-base font-black text-white mt-0.5">${pred.pred_home}–${pred.pred_away}</span>
+                        ${ptsLine}
+                    </div>`;
+                }).join('');
+
+                return `<div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+                    <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between gap-3 flex-wrap">
+                        <p class="font-bold text-white">${home} <span class="text-slate-500 font-normal text-sm">vs</span> ${away}</p>
+                        ${statusBadge}
+                    </div>
+                    <div class="px-4 py-3">
+                        <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Predictions</p>
+                        <div class="flex flex-wrap gap-2">
+                            ${playerChips || '<span class="text-xs text-slate-600 italic">No predictions yet</span>'}
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        // ── Populate match dropdowns (open matches only) ──────
+        async function populateMatchDropdowns() {
+            const { data: open, error } = await db.from('match_results')
+                .select('*').eq('is_finished', false).order('id', { ascending: true });
+
+            if (error) {
+                console.error("Error fetching open matches:", error);
+                document.getElementById('matchSelect').innerHTML = '<option value="">DB Error — check RLS</option>';
+                return;
+            }
+
+            const sel   = document.getElementById('matchSelect');
+            const admin = document.getElementById('adminMatchSelect');
+
+            if (!open || !open.length) {
+                sel.innerHTML   = '<option value="">No upcoming matches</option>';
+                admin.innerHTML = '<option value="">No active matches</option>';
+                return;
+            }
+
+            sel.innerHTML   = '<option value="">Choose match…</option>';
+            admin.innerHTML = '<option value="">Choose match…</option>';
+            open.forEach(m => {
+                const opt = `<option value="${m.match_label}">${m.match_label}</option>`;
+                sel.innerHTML   += opt;
+                admin.innerHTML += opt;
             });
         }
 
-        // Dynamically insert a brand new player into the system
+        // Update team name labels when a match is selected
+        document.getElementById('matchSelect').addEventListener('change', function () {
+            const { home, away } = parseTeams(this.value || '');
+            document.getElementById('homeTeamLabel').textContent = this.value ? home : 'Home Team';
+            document.getElementById('awayTeamLabel').textContent = this.value ? away : 'Away Team';
+        });
+
+        document.getElementById('adminMatchSelect').addEventListener('change', function () {
+            const { home, away } = parseTeams(this.value || '');
+            document.getElementById('adminHomeLabel').textContent = this.value ? home : 'Home';
+            document.getElementById('adminAwayLabel').textContent = this.value ? away : 'Away';
+        });
+
+        // ── Add new player ────────────────────────────────────
         async function addNewPlayer() {
             const newName = prompt("Enter the new player's name:");
-            if (!newName || newName.trim() === "") return;
-
-            const cleanedName = newName.trim();
-            const { error } = await supabase.from('family_members').insert([{ name: cleanedName }]);
-
+            if (!newName || !newName.trim()) return;
+            const name = newName.trim();
+            const { error } = await db.from('family_members').insert([{ name }]);
             if (!error) {
-                alert(`🎉 ${cleanedName} added successfully to the tournament!`);
-                await fetchLeaderboardAndUsers();
+                alert(`🎉 ${name} added!`);
+                await fetchAllData();
+            } else if (error.code === '23505') {
+                alert(`"${name}" is already in the pool! Pick them from the dropdown.`);
             } else {
-                alert("Could not add player. They might already exist.");
+                alert("Could not add player: " + error.message);
+                console.error(error);
             }
         }
 
-        async function populateMatches() {
-            const { data: openMatches, error } = await supabase.from('match_results').select('*').eq('is_finished', false);
-            
-            if (error) {
-                console.error("Error fetching matches:", error);
-                document.getElementById('matchSelect').innerHTML = '<option value="">Database Connection Error</option>';
-                return;
-            }
-
-            const select = document.getElementById('matchSelect');
-            const adminSelect = document.getElementById('adminMatchSelect');
-            
-            if (!openMatches || openMatches.length === 0) {
-                select.innerHTML = '<option value="">No upcoming matches active</option>';
-                adminSelect.innerHTML = '<option value="">No active matches</option>';
-                return;
-            }
-
-            select.innerHTML = ''; 
-            adminSelect.innerHTML = '';
-            openMatches.forEach(m => {
-                const opt = `<option value="${m.match_label}">${m.match_label}</option>`;
-                select.innerHTML += opt;
-                adminSelect.innerHTML += opt;
-            });
-        }
-
-        // Submitting Predictions
+        // ── Submit prediction ─────────────────────────────────
         document.getElementById('predictionForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const player = document.getElementById('userSelect').value;
-            const match = document.getElementById('matchSelect').value;
+            const match  = document.getElementById('matchSelect').value;
             const h = parseInt(document.getElementById('predHome').value);
             const a = parseInt(document.getElementById('predAway').value);
 
-            const { error } = await supabase.from('predictions').upsert({
-                player_name: player, match_label: match, pred_home: h, pred_away: a
-            }, { onConflict: 'player_name,match_label' });
+            const { error } = await db.from('predictions').upsert(
+                { player_name: player, match_label: match, pred_home: h, pred_away: a },
+                { onConflict: 'player_name,match_label' }
+            );
 
-            if(!error) {
-                alert(`🎯 Prediction locked in for ${player}!`);
+            if (!error) {
+                alert(`🎯 Prediction saved for ${player}!`);
                 document.getElementById('predHome').value = '';
                 document.getElementById('predAway').value = '';
-            } else { alert("Error saving pick."); }
+                await fetchAllData();
+            } else {
+                alert("Error saving prediction: " + error.message);
+                console.error(error);
+            }
         });
 
-        // Parent Admin - Settle Scores
+        // ── Settle match & award points ───────────────────────
         document.getElementById('adminForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const match = document.getElementById('adminMatchSelect').value;
-            const actH = parseInt(document.getElementById('actualHome').value);
-            const actA = parseInt(document.getElementById('actualAway').value);
+            const actH  = parseInt(document.getElementById('actualHome').value);
+            const actA  = parseInt(document.getElementById('actualAway').value);
+            const statusEl = document.getElementById('settleStatus');
 
-            if(!match) return alert("Select a valid match.");
+            if (!match)                     return alert("Select a match first.");
+            if (isNaN(actH) || isNaN(actA)) return alert("Enter valid scores for both teams.");
 
-            await supabase.from('match_results').update({ home_score: actH, away_score: actA, is_finished: true }).eq('match_label', match);
+            statusEl.className   = 'text-xs rounded-xl p-3 bg-slate-700 text-slate-300';
+            statusEl.textContent = '⏳ Processing…';
+            statusEl.style.display = 'block';
 
-            const { data: preds } = await supabase.from('predictions').select('*').eq('match_label', match);
-            const actualOutcome = actH > actA ? 'W' : (actH < actA ? 'L' : 'D');
+            // 1. Lock match as finished
+            const { error: matchErr } = await db.from('match_results')
+                .update({ home_score: actH, away_score: actA, is_finished: true })
+                .eq('match_label', match);
 
-            if (preds) {
-                for (let p of preds) {
-                    let pointsEarned = 0;
-                    const predOutcome = p.pred_home > p.pred_away ? 'W' : (p.pred_home < p.pred_away ? 'L' : 'D');
+            if (matchErr) {
+                statusEl.className   = 'text-xs rounded-xl p-3 bg-red-900 text-red-300';
+                statusEl.textContent = '❌ Could not update match: ' + matchErr.message;
+                return;
+            }
 
-                    if(p.pred_home === actH && p.pred_away === actA) {
-                        pointsEarned = 5;
-                    } else {
-                        if(predOutcome === actualOutcome) pointsEarned += 1;
-                        if(p.pred_home === actH || p.pred_away === actA) pointsEarned += 1;
-                    }
+            // 2. Fetch all predictions for this match
+            const { data: preds, error: predErr } = await db.from('predictions')
+                .select('*').eq('match_label', match);
 
-                    if(pointsEarned > 0) {
-                        const { data: member } = await supabase.from('family_members').select('total_score').eq('name', p.player_name).single();
-                        let newScore = (member?.total_score || 0) + pointsEarned;
-                        await supabase.from('family_members').update({ total_score: newScore }).eq('name', p.player_name);
+            if (predErr) {
+                statusEl.className   = 'text-xs rounded-xl p-3 bg-red-900 text-red-300';
+                statusEl.textContent = '❌ Could not fetch predictions: ' + predErr.message + ' — check RLS on predictions table.';
+                return;
+            }
+
+            // 3. Calculate and award points
+            const summary = [];
+            if (preds && preds.length > 0) {
+                for (const p of preds) {
+                    const earned = calcPoints(p.pred_home, p.pred_away, actH, actA);
+                    summary.push(`${p.player_name}: ${p.pred_home}–${p.pred_away} → ${earned}pt${earned !== 1 ? 's' : ''}`);
+                    if (earned > 0) {
+                        const { data: member } = await db.from('family_members')
+                            .select('total_score').eq('name', p.player_name).single();
+                        const newScore = (member?.total_score || 0) + earned;
+                        await db.from('family_members').update({ total_score: newScore }).eq('name', p.player_name);
                     }
                 }
             }
 
-            alert("Scores successfully calculated!");
+            statusEl.className = 'text-xs rounded-xl p-3 bg-emerald-900/70 text-emerald-300 border border-emerald-700/50';
+            statusEl.innerHTML = preds?.length
+                ? '✅ Done! Points awarded:<br>' + summary.join('<br>')
+                : '✅ Match settled. No predictions were submitted for this match.';
+
             document.getElementById('actualHome').value = '';
             document.getElementById('actualAway').value = '';
-            initApp();
+
+            await Promise.all([fetchAllData(), populateMatchDropdowns()]);
         });
 
-        // Password Protected System Reset Engine
+        // ── Reset system ──────────────────────────────────────
         async function resetSystem() {
-            const passwordAttempt = prompt("🔒 Password Check Required.\nHint: amicable number? (Combine the smallest amicable pair into one string)");
-            
-            if (passwordAttempt === "220284") {
-                if(confirm("⚠️ Are you absolutely sure? This clears all points, user predictions, and sets matches back to unplayed!")) {
-                    // Reset all match states
-                    await supabase.from('match_results').update({ home_score: null, away_score: null, is_finished: false }).neq('match_label', '');
-                    // Clear out predictions matrix
-                    await supabase.from('predictions').delete().neq('id', 0);
-                    // Zero out scores
-                    await supabase.from('family_members').update({ total_score: 0 }).neq('name', '');
-                    
-                    alert("🔄 System wiped and reset back to game 1. Good luck!");
-                    initApp();
-                }
-            } else if (passwordAttempt !== null) {
-                alert("❌ Wrong password! System access denied.");
+            const pwd = prompt("🔒 Password required\nHint: combine the smallest amicable pair into one string");
+            if (pwd !== "220284") {
+                if (pwd !== null) alert("❌ Wrong password.");
+                return;
             }
+            if (!confirm("⚠️ This will clear ALL scores, predictions, and reset every match. Are you sure?")) return;
+
+            await db.from('match_results').update({ home_score: null, away_score: null, is_finished: false }).neq('match_label', '');
+            await db.from('predictions').delete().neq('id', 0);
+            await db.from('family_members').update({ total_score: 0 }).neq('name', '');
+
+            alert("🔄 System reset! Everything is back to square one.");
+            await Promise.all([fetchAllData(), populateMatchDropdowns()]);
         }
 
         window.onload = initApp;
