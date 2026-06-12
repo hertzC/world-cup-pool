@@ -17,7 +17,7 @@
 
         <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700 shadow-lg">
             <h2 class="text-xl font-bold text-amber-400 mb-4 flex items-center gap-2">🏆 Standings</h2>
-            <div id="leaderboard" class="grid grid-cols-4 gap-4 text-center">
+            <div id="leaderboard" class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
                 <div class="animate-pulse bg-slate-700 h-16 rounded-xl col-span-4"></div>
             </div>
         </div>
@@ -25,20 +25,20 @@
         <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700 shadow-lg">
             <h2 class="text-xl font-bold text-emerald-400 mb-4">🔮 Lock In Your Prediction</h2>
             <form id="predictionForm" class="space-y-4">
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs font-bold uppercase text-slate-400 mb-1">Who Are You?</label>
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="block text-xs font-bold uppercase text-slate-400">Who Are You?</label>
+                            <button type="button" onclick="addNewPlayer()" class="text-xs font-bold text-indigo-400 hover:underline">➕ Add New Person</button>
+                        </div>
                         <select id="userSelect" required class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 font-semibold text-white outline-none">
                             <option value="">Choose name...</option>
-                            <option value="Dad">Dad</option>
-                            <option value="Mom">Mom</option>
-                            <option value="Son 1">Son 1</option>
-                            <option value="Son 2">Son 2</option>
-                        </select>
+                            </select>
                     </div>
                     <div>
                         <label class="block text-xs font-bold uppercase text-slate-400 mb-1">Select Upcoming Match</label>
                         <select id="matchSelect" required class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-white outline-none">
+                            <option value="">Loading matches...</option>
                             </select>
                     </div>
                 </div>
@@ -61,24 +61,33 @@
             </form>
         </div>
 
-        <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700 shadow-md opacity-60 hover:opacity-100 transition">
+        <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700 shadow-md">
             <h2 class="text-sm font-bold text-red-400 uppercase tracking-wider mb-3">🛠️ Parent Scorekeeper Console</h2>
-            <form id="adminForm" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-                <div class="sm:col-span-2">
-                    <label class="block text-xs text-slate-400 mb-1">Match to Settle</label>
-                    <select id="adminMatchSelect" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 text-sm text-white"></select>
-                </div>
-                <div>
-                    <label class="block text-xs text-slate-400 mb-1">Final Score (H - A)</label>
-                    <div class="flex gap-1">
-                        <input type="number" id="actualHome" min="0" placeholder="0" class="w-1/2 bg-slate-700 text-center p-2 rounded text-sm text-white">
-                        <input type="number" id="actualAway" min="0" placeholder="0" class="w-1/2 bg-slate-700 text-center p-2 rounded text-sm text-white">
+            <div class="space-y-6">
+                <form id="adminForm" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs text-slate-400 mb-1">Match to Settle</label>
+                        <select id="adminMatchSelect" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 text-sm text-white"></select>
                     </div>
+                    <div>
+                        <label class="block text-xs text-slate-400 mb-1">Final Score (H - A)</label>
+                        <div class="flex gap-1">
+                            <input type="number" id="actualHome" min="0" placeholder="0" class="w-1/2 bg-slate-700 text-center p-2 rounded text-sm text-white">
+                            <input type="number" id="actualAway" min="0" placeholder="0" class="w-1/2 bg-slate-700 text-center p-2 rounded text-sm text-white">
+                        </div>
+                    </div>
+                    <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded-lg text-xs uppercase tracking-wide">
+                        Settle & Calculate
+                    </button>
+                </form>
+
+                <div class="pt-4 border-t border-slate-700 flex justify-between items-center">
+                    <span class="text-xs text-slate-400">Need to start over?</span>
+                    <button type="button" onclick="resetSystem()" class="bg-slate-700 hover:bg-red-950 text-red-400 border border-red-900/50 px-3 py-1.5 rounded-lg text-xs font-bold transition">
+                        🚨 Clear & Reset All Scores
+                    </button>
                 </div>
-                <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded-lg text-xs uppercase tracking-wide">
-                    Settle & Calculate
-                </button>
-            </form>
+            </div>
         </div>
     </div>
 
@@ -88,32 +97,75 @@
         const SUPABASE_KEY = "sb_publishable_nArAx2yBt6g49arGL-Hg-A_CYO3uxlS";
         const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        // Core App Initialization logic
         async function initApp() {
-            fetchLeaderboard();
-            populateMatches();
+            await fetchLeaderboardAndUsers();
+            await populateMatches();
         }
 
-        async function fetchLeaderboard() {
-            const { data: players } = await supabase.from('family_members').select('*').order('total_score', { ascending: false });
-            const container = document.getElementById('leaderboard');
-            container.innerHTML = '';
+        // Fetches users for both leaderboard UI and selection forms
+        async function fetchLeaderboardAndUsers() {
+            const { data: players, error } = await supabase.from('family_members').select('*').order('total_score', { ascending: false });
             
+            if (error) {
+                console.error("Error loading players:", error);
+                return;
+            }
+
+            // 1. Render Leaderboard Cards
+            const leaderboardContainer = document.getElementById('leaderboard');
+            leaderboardContainer.innerHTML = '';
             players.forEach(p => {
-                container.innerHTML += `
+                leaderboardContainer.innerHTML += `
                     <div class="bg-slate-700 p-4 rounded-xl border border-slate-600">
-                        <p class="text-xs font-bold text-slate-300 uppercase">${p.name}</p>
+                        <p class="text-xs font-bold text-slate-300 uppercase truncate">${p.name}</p>
                         <p class="text-2xl font-black text-amber-400 mt-1">${p.total_score}<span class="text-xs font-normal text-slate-400">pts</span></p>
                     </div>`;
             });
+
+            // 2. Populate Dropdown Selection List
+            const userSelect = document.getElementById('userSelect');
+            userSelect.innerHTML = '<option value="">Choose name...</option>';
+            players.forEach(p => {
+                userSelect.innerHTML += `<option value="${p.name}">${p.name}</option>`;
+            });
+        }
+
+        // Dynamically insert a brand new player into the system
+        async function addNewPlayer() {
+            const newName = prompt("Enter the new player's name:");
+            if (!newName || newName.trim() === "") return;
+
+            const cleanedName = newName.trim();
+            const { error } = await supabase.from('family_members').insert([{ name: cleanedName }]);
+
+            if (!error) {
+                alert(`🎉 ${cleanedName} added successfully to the tournament!`);
+                await fetchLeaderboardAndUsers();
+            } else {
+                alert("Could not add player. They might already exist.");
+            }
         }
 
         async function populateMatches() {
-            const { data: openMatches } = await supabase.from('match_results').select('*').eq('is_finished', false);
+            const { data: openMatches, error } = await supabase.from('match_results').select('*').eq('is_finished', false);
+            
+            if (error) {
+                console.error("Error fetching matches:", error);
+                document.getElementById('matchSelect').innerHTML = '<option value="">Database Connection Error</option>';
+                return;
+            }
+
             const select = document.getElementById('matchSelect');
             const adminSelect = document.getElementById('adminMatchSelect');
             
-            select.innerHTML = ''; adminSelect.innerHTML = '';
+            if (!openMatches || openMatches.length === 0) {
+                select.innerHTML = '<option value="">No upcoming matches active</option>';
+                adminSelect.innerHTML = '<option value="">No active matches</option>';
+                return;
+            }
+
+            select.innerHTML = ''; 
+            adminSelect.innerHTML = '';
             openMatches.forEach(m => {
                 const opt = `<option value="${m.match_label}">${m.match_label}</option>`;
                 select.innerHTML += opt;
@@ -137,49 +189,69 @@
                 alert(`🎯 Prediction locked in for ${player}!`);
                 document.getElementById('predHome').value = '';
                 document.getElementById('predAway').value = '';
-            } else { alert("Error saving pick. Make sure selection is valid."); }
+            } else { alert("Error saving pick."); }
         });
 
-        // Parent Admin - Calculate points dynamically on match resolution
+        // Parent Admin - Settle Scores
         document.getElementById('adminForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const match = document.getElementById('adminMatchSelect').value;
             const actH = parseInt(document.getElementById('actualHome').value);
             const actA = parseInt(document.getElementById('actualAway').value);
 
-            // 1. Mark match finished
+            if(!match) return alert("Select a valid match.");
+
             await supabase.from('match_results').update({ home_score: actH, away_score: actA, is_finished: true }).eq('match_label', match);
 
-            // 2. Fetch all predictions for this completed game
             const { data: preds } = await supabase.from('predictions').select('*').eq('match_label', match);
             const actualOutcome = actH > actA ? 'W' : (actH < actA ? 'L' : 'D');
 
-            for (let p of preds) {
-                let pointsEarned = 0;
-                const predOutcome = p.pred_home > p.pred_away ? 'W' : (p.pred_home < p.pred_away ? 'L' : 'D');
+            if (preds) {
+                for (let p of preds) {
+                    let pointsEarned = 0;
+                    const predOutcome = p.pred_home > p.pred_away ? 'W' : (p.pred_home < p.pred_away ? 'L' : 'D');
 
-                // Rule A: Exact Match Score (5 pts)
-                if(p.pred_home === actH && p.pred_away === actA) {
-                    pointsEarned = 5;
-                } else {
-                    // Rule B: Correct outcome/Winner (1 pt)
-                    if(predOutcome === actualOutcome) pointsEarned += 1;
-                    // Rule C: Individual team score matching perfectly (1 pt)
-                    if(p.pred_home === actH || p.pred_away === actA) pointsEarned += 1;
-                }
+                    if(p.pred_home === actH && p.pred_away === actA) {
+                        pointsEarned = 5;
+                    } else {
+                        if(predOutcome === actualOutcome) pointsEarned += 1;
+                        if(p.pred_home === actH || p.pred_away === actA) pointsEarned += 1;
+                    }
 
-                if(pointsEarned > 0) {
-                    // Pull current score
-                    const { data: member } = await supabase.from('family_members').select('total_score').eq('name', p.player_name).single();
-                    let newScore = (member?.total_score || 0) + pointsEarned;
-                    // Update user's leaderboard ranking
-                    await supabase.from('family_members').update({ total_score: newScore }).eq('name', p.player_name);
+                    if(pointsEarned > 0) {
+                        const { data: member } = await supabase.from('family_members').select('total_score').eq('name', p.player_name).single();
+                        let newScore = (member?.total_score || 0) + pointsEarned;
+                        await supabase.from('family_members').update({ total_score: newScore }).eq('name', p.player_name);
+                    }
                 }
             }
 
-            alert("Scores successfully updated across all family dashboards!");
+            alert("Scores successfully calculated!");
+            document.getElementById('actualHome').value = '';
+            document.getElementById('actualAway').value = '';
             initApp();
         });
+
+        // Password Protected System Reset Engine
+        async function resetSystem() {
+            const passwordAttempt = prompt("🔒 Password Check Required.\nHint: amicable number? (Combine the smallest amicable pair into one string)");
+            
+            if (passwordAttempt === "220284") {
+                if(confirm("⚠️ Are you absolutely sure? This clears all points, user predictions, and sets matches back to unplayed!")) {
+                    // Reset all match states
+                    await supabase.from('match_results').update({ home_score: null, away_score: null, is_finished: false }).neq('match_label', '');
+                    // Clear out predictions matrix
+                    await supabase.from('predictions').delete().neq('id', 0);
+                    // Zero out scores
+                    await supabase.from('family_members').update({ total_score: 0 }).neq('name', '');
+                    
+                    alert("🔄 System wiped and reset back to game 1. Good luck!");
+                    initApp();
+                }
+            } else if (passwordAttempt !== null) {
+                alert("❌ Wrong password! System access denied.");
+            }
+        }
 
         window.onload = initApp;
     </script>
