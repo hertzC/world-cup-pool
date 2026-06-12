@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Family World Cup Pool</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans p-4 md:p-8">
+
+    <div class="max-w-2xl mx-auto space-y-8">
+        <div class="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 rounded-3xl p-6 text-center shadow-xl">
+            <h1 class="text-3xl font-black uppercase tracking-wider">⚽ Family Prediction Pool</h1>
+            <p class="text-sm text-indigo-100 font-medium mt-1">Real-time Leaderboard & Scores</p>
+        </div>
+
+        <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700 shadow-lg">
+            <h2 class="text-xl font-bold text-amber-400 mb-4 flex items-center gap-2">🏆 Standings</h2>
+            <div id="leaderboard" class="grid grid-cols-4 gap-4 text-center">
+                <div class="animate-pulse bg-slate-700 h-16 rounded-xl col-span-4"></div>
+            </div>
+        </div>
+
+        <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700 shadow-lg">
+            <h2 class="text-xl font-bold text-emerald-400 mb-4">🔮 Lock In Your Prediction</h2>
+            <form id="predictionForm" class="space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-slate-400 mb-1">Who Are You?</label>
+                        <select id="userSelect" required class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 font-semibold text-white outline-none">
+                            <option value="">Choose name...</option>
+                            <option value="Dad">Dad</option>
+                            <option value="Mom">Mom</option>
+                            <option value="Son 1">Son 1</option>
+                            <option value="Son 2">Son 2</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-slate-400 mb-1">Select Upcoming Match</label>
+                        <select id="matchSelect" required class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-white outline-none">
+                            </select>
+                    </div>
+                </div>
+
+                <div class="bg-slate-850 p-4 rounded-xl border border-slate-750 flex items-center justify-center gap-4 text-center">
+                    <div>
+                        <span class="block text-xs font-bold text-slate-400 mb-1">Home Team</span>
+                        <input type="number" id="predHome" min="0" required class="w-20 bg-slate-700 text-center text-2xl font-black rounded-lg p-2 text-white">
+                    </div>
+                    <span class="text-xl font-bold text-slate-500 mt-4">VS</span>
+                    <div>
+                        <span class="block text-xs font-bold text-slate-400 mb-1">Away Team</span>
+                        <input type="number" id="predAway" min="0" required class="w-20 bg-slate-700 text-center text-2xl font-black rounded-lg p-2 text-white">
+                    </div>
+                </div>
+
+                <button type="submit" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black py-4 rounded-xl shadow-lg uppercase tracking-wider transition transform active:scale-95">
+                    Save Prediction 🚀
+                </button>
+            </form>
+        </div>
+
+        <div class="bg-slate-800 rounded-2xl p-6 border border-slate-700 shadow-md opacity-60 hover:opacity-100 transition">
+            <h2 class="text-sm font-bold text-red-400 uppercase tracking-wider mb-3">🛠️ Parent Scorekeeper Console</h2>
+            <form id="adminForm" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                <div class="sm:col-span-2">
+                    <label class="block text-xs text-slate-400 mb-1">Match to Settle</label>
+                    <select id="adminMatchSelect" class="w-full bg-slate-700 border border-slate-600 rounded-lg p-2 text-sm text-white"></select>
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1">Final Score (H - A)</label>
+                    <div class="flex gap-1">
+                        <input type="number" id="actualHome" min="0" placeholder="0" class="w-1/2 bg-slate-700 text-center p-2 rounded text-sm text-white">
+                        <input type="number" id="actualAway" min="0" placeholder="0" class="w-1/2 bg-slate-700 text-center p-2 rounded text-sm text-white">
+                    </div>
+                </div>
+                <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded-lg text-xs uppercase tracking-wide">
+                    Settle & Calculate
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // ⚠️ INJECT YOUR SUPABASE VALUES HERE
+        const SUPABASE_URL = "https://loksiyqxesuuuhxaxqde.supabase.co/rest/v1/";
+        const SUPABASE_KEY = "sb_publishable_nArAx2yBt6g49arGL-Hg-A_CYO3uxlS";
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // Core App Initialization logic
+        async function initApp() {
+            fetchLeaderboard();
+            populateMatches();
+        }
+
+        async function fetchLeaderboard() {
+            const { data: players } = await supabase.from('family_members').select('*').order('total_score', { ascending: false });
+            const container = document.getElementById('leaderboard');
+            container.innerHTML = '';
+            
+            players.forEach(p => {
+                container.innerHTML += `
+                    <div class="bg-slate-700 p-4 rounded-xl border border-slate-600">
+                        <p class="text-xs font-bold text-slate-300 uppercase">${p.name}</p>
+                        <p class="text-2xl font-black text-amber-400 mt-1">${p.total_score}<span class="text-xs font-normal text-slate-400">pts</span></p>
+                    </div>`;
+            });
+        }
+
+        async function populateMatches() {
+            const { data: openMatches } = await supabase.from('match_results').select('*').eq('is_finished', false);
+            const select = document.getElementById('matchSelect');
+            const adminSelect = document.getElementById('adminMatchSelect');
+            
+            select.innerHTML = ''; adminSelect.innerHTML = '';
+            openMatches.forEach(m => {
+                const opt = `<option value="${m.match_label}">${m.match_label}</option>`;
+                select.innerHTML += opt;
+                adminSelect.innerHTML += opt;
+            });
+        }
+
+        // Submitting Predictions
+        document.getElementById('predictionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const player = document.getElementById('userSelect').value;
+            const match = document.getElementById('matchSelect').value;
+            const h = parseInt(document.getElementById('predHome').value);
+            const a = parseInt(document.getElementById('predAway').value);
+
+            const { error } = await supabase.from('predictions').upsert({
+                player_name: player, match_label: match, pred_home: h, pred_away: a
+            }, { onConflict: 'player_name,match_label' });
+
+            if(!error) {
+                alert(`🎯 Prediction locked in for ${player}!`);
+                document.getElementById('predHome').value = '';
+                document.getElementById('predAway').value = '';
+            } else { alert("Error saving pick. Make sure selection is valid."); }
+        });
+
+        // Parent Admin - Calculate points dynamically on match resolution
+        document.getElementById('adminForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const match = document.getElementById('adminMatchSelect').value;
+            const actH = parseInt(document.getElementById('actualHome').value);
+            const actA = parseInt(document.getElementById('actualAway').value);
+
+            // 1. Mark match finished
+            await supabase.from('match_results').update({ home_score: actH, away_score: actA, is_finished: true }).eq('match_label', match);
+
+            // 2. Fetch all predictions for this completed game
+            const { data: preds } = await supabase.from('predictions').select('*').eq('match_label', match);
+            const actualOutcome = actH > actA ? 'W' : (actH < actA ? 'L' : 'D');
+
+            for (let p of preds) {
+                let pointsEarned = 0;
+                const predOutcome = p.pred_home > p.pred_away ? 'W' : (p.pred_home < p.pred_away ? 'L' : 'D');
+
+                // Rule A: Exact Match Score (5 pts)
+                if(p.pred_home === actH && p.pred_away === actA) {
+                    pointsEarned = 5;
+                } else {
+                    // Rule B: Correct outcome/Winner (1 pt)
+                    if(predOutcome === actualOutcome) pointsEarned += 1;
+                    // Rule C: Individual team score matching perfectly (1 pt)
+                    if(p.pred_home === actH || p.pred_away === actA) pointsEarned += 1;
+                }
+
+                if(pointsEarned > 0) {
+                    // Pull current score
+                    const { data: member } = await supabase.from('family_members').select('total_score').eq('name', p.player_name).single();
+                    let newScore = (member?.total_score || 0) + pointsEarned;
+                    // Update user's leaderboard ranking
+                    await supabase.from('family_members').update({ total_score: newScore }).eq('name', p.player_name);
+                }
+            }
+
+            alert("Scores successfully updated across all family dashboards!");
+            initApp();
+        });
+
+        window.onload = initApp;
+    </script>
+</body>
+</html>
