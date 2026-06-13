@@ -303,6 +303,43 @@
             return pts;
         }
 
+        // ── Format a date value to HKT (UTC+8) ───────────────
+        function formatHKT(val) {
+            if (!val) return null;
+            try {
+                return new Intl.DateTimeFormat('en-HK', {
+                    timeZone: 'Asia/Hong_Kong',
+                    year: 'numeric', month: 'short', day: 'numeric',
+                    hour: '2-digit', minute: '2-digit', hour12: false
+                }).format(new Date(val));
+            } catch (e) { return null; }
+        }
+
+        // ── Build highlights block for a finished match ───────
+        function buildHighlights(m, home, away) {
+            const h = Number(m.home_score), a = Number(m.away_score);
+            const total = h + a, margin = Math.abs(h - a);
+
+            let outcome;
+            if (h > a)      outcome = `🏆 ${home} wins`;
+            else if (a > h) outcome = `🏆 ${away} wins`;
+            else             outcome = '🤝 Draw';
+
+            const marginNote = margin === 0 ? 'Honours even' : `Won by ${margin} goal${margin !== 1 ? 's' : ''}`;
+
+            const badges = [];
+            if (h === 0 || a === 0) badges.push('<span class="bg-teal-900/70 text-teal-300 border border-teal-700/50 text-[10px] font-bold px-2 py-0.5 rounded-full">🧤 Clean Sheet</span>');
+            if (margin === 1)        badges.push('<span class="bg-orange-900/70 text-orange-300 border border-orange-700/50 text-[10px] font-bold px-2 py-0.5 rounded-full">⚡ Close Game</span>');
+            if (total >= 6)          badges.push('<span class="bg-pink-900/70 text-pink-300 border border-pink-700/50 text-[10px] font-bold px-2 py-0.5 rounded-full">🔥 Goal Fest</span>');
+            else if (total >= 4)     badges.push('<span class="bg-purple-900/70 text-purple-300 border border-purple-700/50 text-[10px] font-bold px-2 py-0.5 rounded-full">⚽ High Scoring</span>');
+
+            return `<div class="px-4 py-2.5 border-t border-slate-700/50 bg-slate-800/60">
+                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Match Highlights</p>
+                    <p class="text-xs font-semibold text-slate-200 mb-1.5">${outcome} <span class="text-slate-500 font-normal">· ${marginNote}</span></p>
+                    ${badges.length ? `<div class="flex flex-wrap gap-1.5">${badges.join('')}</div>` : ''}
+                </div>`;
+        }
+
         // ── Init ──────────────────────────────────────────────
         async function initApp() {
             await Promise.all([fetchAllData(), populateMatchDropdowns()]);
@@ -378,6 +415,9 @@
                     ? `<span class="shrink-0 bg-emerald-900/70 text-emerald-300 border border-emerald-700/50 text-xs font-bold px-2.5 py-1 rounded-full">✅ ${m.home_score} – ${m.away_score}</span>`
                     : `<span class="shrink-0 bg-indigo-900/70 text-indigo-300 border border-indigo-700/50 text-xs font-bold px-2.5 py-1 rounded-full">🕐 Upcoming</span>`;
 
+                const dtHKT = formatHKT(m.match_date || m.created_at);
+                const dateRow = dtHKT ? `<p class="text-[10px] text-slate-500 mt-0.5">📅 ${dtHKT} HKT</p>` : '';
+
                 const playerChips = allPlayersCache.map(player => {
                     const pred = preds.find(p => p.player_name === player.name);
                     if (!pred) {
@@ -401,7 +441,10 @@
 
                 return `<div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
                     <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between gap-3 flex-wrap">
-                        <p class="font-bold text-white">${home} <span class="text-slate-500 font-normal text-sm">vs</span> ${away}</p>
+                        <div>
+                            <p class="font-bold text-white">${home} <span class="text-slate-500 font-normal text-sm">vs</span> ${away}</p>
+                            ${dateRow}
+                        </div>
                         ${statusBadge}
                     </div>
                     <div class="px-4 py-3">
@@ -410,6 +453,7 @@
                             ${playerChips || '<span class="text-xs text-slate-600 italic">No predictions yet</span>'}
                         </div>
                     </div>
+                    ${m.is_finished ? buildHighlights(m, home, away) : ''}
                 </div>`;
             }).join('');
         }
