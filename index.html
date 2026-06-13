@@ -56,7 +56,7 @@
                             <span class="text-sm text-slate-300">Exact scoreline (e.g. predict 2–1, result is 2–1)</span>
                         </div>
                         <div class="flex items-center gap-3">
-                            <span class="w-9 h-9 shrink-0 bg-emerald-600 text-white font-black rounded-lg flex items-center justify-center">+1</span>
+                            <span class="w-9 h-9 shrink-0 bg-emerald-600 text-white font-black rounded-lg flex items-center justify-center">+2</span>
                             <span class="text-sm text-slate-300">Correct outcome (win / draw / loss)</span>
                         </div>
                         <div class="flex items-center gap-3">
@@ -156,12 +156,21 @@
                             Settle Match &amp; Award Points
                         </button>
                     </form>
-                    <div class="mt-6 pt-5 border-t border-slate-700 flex justify-between items-center">
-                        <span class="text-xs text-slate-500">Danger zone — clears everything</span>
-                        <button type="button" onclick="resetSystem()"
-                            class="bg-slate-700 hover:bg-red-950 text-red-400 border border-red-900/50 px-3 py-2 rounded-lg text-xs font-bold transition">
-                            🚨 Reset All Scores
-                        </button>
+                    <div class="mt-6 pt-5 border-t border-slate-700 space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs text-slate-400 font-semibold">Fix wrong scores without clearing data</span>
+                            <button type="button" onclick="recalculateAllScores()"
+                                class="bg-slate-700 hover:bg-amber-900/50 text-amber-400 border border-amber-900/50 px-3 py-2 rounded-lg text-xs font-bold transition">
+                                🔁 Recalculate All Scores
+                            </button>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs text-slate-500">Danger zone — clears everything</span>
+                            <button type="button" onclick="resetSystem()"
+                                class="bg-slate-700 hover:bg-red-950 text-red-400 border border-red-900/50 px-3 py-2 rounded-lg text-xs font-bold transition">
+                                🚨 Reset All Scores
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -247,6 +256,7 @@
         let allPredictionsCache = [];
         let allPlayersCache     = [];
         let currentFilter       = 'all';
+        let isSettling          = false;
 
         // ── Tab switching ─────────────────────────────────────
         function switchTab(tab) {
@@ -281,11 +291,14 @@
         }
 
         function calcPoints(predH, predA, actH, actA) {
+            // Normalise to numbers in case DB returns strings
+            predH = Number(predH); predA = Number(predA);
+            actH  = Number(actH);  actA  = Number(actA);
             if (predH === actH && predA === actA) return 5;
             let pts = 0;
             const pOut = predH > predA ? 'W' : predH < predA ? 'L' : 'D';
             const aOut = actH  > actA  ? 'W' : actH  < actA  ? 'L' : 'D';
-            if (pOut === aOut) pts++;
+            if (pOut === aOut) pts += 2;
             if (predH === actH || predA === actA) pts++;
             return pts;
         }
@@ -487,6 +500,7 @@
         // ── Settle match & award points ───────────────────────
         document.getElementById('adminForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            if (isSettling) return; // Prevent double-submission
             const match = document.getElementById('adminMatchSelect').value;
             const actH  = parseInt(document.getElementById('actualHome').value);
             const actA  = parseInt(document.getElementById('actualAway').value);
@@ -495,9 +509,20 @@
             if (!match)                     return alert("Select a match first.");
             if (isNaN(actH) || isNaN(actA)) return alert("Enter valid scores for both teams.");
 
+            isSettling = true;
             statusEl.className   = 'text-xs rounded-xl p-3 bg-slate-700 text-slate-300';
             statusEl.textContent = '⏳ Processing…';
             statusEl.style.display = 'block';
+
+            // 0. Confirm match is not already finished (guard against race conditions)
+            const { data: matchState } = await db.from('match_results')
+                .select('is_finished').eq('match_label', match).single();
+            if (matchState?.is_finished) {
+                statusEl.className   = 'text-xs rounded-xl p-3 bg-amber-900/70 text-amber-300';
+                statusEl.textContent = '⚠️ Match already settled — no points changed. Use Recalculate if scores are wrong.';
+                isSettling = false;
+                return;
+            }
 
             // 1. Lock match as finished
             const { error: matchErr } = await db.from('match_results')
@@ -507,6 +532,7 @@
             if (matchErr) {
                 statusEl.className   = 'text-xs rounded-xl p-3 bg-red-900 text-red-300';
                 statusEl.textContent = '❌ Could not update match: ' + matchErr.message;
+                isSettling = false;
                 return;
             }
 
@@ -517,6 +543,7 @@
             if (predErr) {
                 statusEl.className   = 'text-xs rounded-xl p-3 bg-red-900 text-red-300';
                 statusEl.textContent = '❌ Could not fetch predictions: ' + predErr.message + ' — check RLS on predictions table.';
+                isSettling = false;
                 return;
             }
 
@@ -543,8 +570,55 @@
             document.getElementById('actualHome').value = '';
             document.getElementById('actualAway').value = '';
 
+            isSettling = false;
             await Promise.all([fetchAllData(), populateMatchDropdowns()]);
         });
+
+        // ── Recalculate all scores from settled matches ───────
+        async function recalculateAllScores() {
+            const pwd = prompt("🔒 Password required\nHint: combine the smallest amicable pair into one string");
+            if (pwd !== "220284") {
+                if (pwd !== null) alert("❌ Wrong password.");
+                return;
+            }
+            if (!confirm("⚠️ This will recalculate EVERYONE's score from scratch using all settled matches.\nCurrent totals will be overwritten. Continue?")) return;
+
+            // 1. Reset all scores to 0
+            const { error: resetErr } = await db.from('family_members').update({ total_score: 0 }).neq('name', '');
+            if (resetErr) { alert('❌ Could not reset scores: ' + resetErr.message); return; }
+
+            // 2. Get all finished matches and all predictions
+            const [{ data: finished }, { data: allPreds }] = await Promise.all([
+                db.from('match_results').select('*').eq('is_finished', true),
+                db.from('predictions').select('*')
+            ]);
+
+            if (!finished?.length) {
+                alert('No settled matches found. All scores reset to 0.');
+                await fetchAllData();
+                return;
+            }
+
+            // 3. Tally points per player across all settled matches
+            const totals = {};
+            for (const match of finished) {
+                const matchPreds = (allPreds || []).filter(p => p.match_label === match.match_label);
+                for (const p of matchPreds) {
+                    const earned = calcPoints(p.pred_home, p.pred_away, match.home_score, match.away_score);
+                    if (earned > 0) {
+                        totals[p.player_name] = (totals[p.player_name] || 0) + earned;
+                    }
+                }
+            }
+
+            // 4. Write correct totals back
+            for (const [name, score] of Object.entries(totals)) {
+                await db.from('family_members').update({ total_score: score }).eq('name', name);
+            }
+
+            alert('✅ Scores recalculated from scratch!');
+            await fetchAllData();
+        }
 
         // ── Reset system ──────────────────────────────────────
         async function resetSystem() {
