@@ -167,11 +167,44 @@
                                     </div>
                                 </div>
                             </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">Highlight Video <span class="text-slate-600">(optional)</span></label>
+                                <div class="flex gap-2">
+                                    <input type="url" id="highlightUrl" placeholder="Paste YouTube URL…"
+                                        class="flex-1 bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm text-white outline-none focus:border-red-500">
+                                    <button type="button" onclick="searchFifaYouTube('adminMatchSelect')"
+                                        class="shrink-0 bg-slate-600 hover:bg-slate-500 text-white text-xs font-bold px-3 rounded-xl transition whitespace-nowrap">
+                                        🔍 FIFA YT
+                                    </button>
+                                </div>
+                            </div>
                             <div id="settleStatus" class="hidden text-xs rounded-xl p-3 leading-relaxed"></div>
                             <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3 rounded-xl uppercase tracking-wide transition">
                                 Settle Match &amp; Award Points
                             </button>
                         </form>
+
+                        <div class="pt-5 mt-5 border-t border-slate-700/60 space-y-3">
+                            <p class="text-xs font-bold text-purple-400 uppercase tracking-wider">📹 Add / Update Highlight</p>
+                            <form id="highlightForm" class="space-y-3">
+                                <select id="highlightMatchSelect" class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm text-white outline-none">
+                                    <option value="">Choose settled match…</option>
+                                </select>
+                                <div class="flex gap-2">
+                                    <input type="url" id="highlightUrlUpdate" placeholder="Paste YouTube URL…"
+                                        class="flex-1 bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm text-white outline-none focus:border-purple-500">
+                                    <button type="button" onclick="searchFifaYouTube('highlightMatchSelect')"
+                                        class="shrink-0 bg-slate-600 hover:bg-slate-500 text-white text-xs font-bold px-3 rounded-xl transition whitespace-nowrap">
+                                        🔍 FIFA YT
+                                    </button>
+                                </div>
+                                <div id="highlightStatus" class="hidden text-xs rounded-xl p-3 leading-relaxed"></div>
+                                <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-black py-3 rounded-xl uppercase tracking-wide transition">
+                                    Save Highlight 📹
+                                </button>
+                            </form>
+                        </div>
+
                         <div class="mt-6 pt-5 border-t border-slate-700 space-y-3">
                             <div class="flex justify-between items-center">
                                 <span class="text-xs text-slate-400 font-semibold">Fix wrong scores without clearing data</span>
@@ -299,6 +332,7 @@
             renderLeaderboard();
             renderUserSelect();
             renderMatchCards();
+            populateHighlightDropdown();
         }
 
         // ── Leaderboard ───────────────────────────────────────
@@ -338,6 +372,18 @@
                 year: 'numeric', month: 'short', day: 'numeric',
                 hour: '2-digit', minute: '2-digit'
             });
+        }
+
+        // ── YouTube URL → embed URL ────────────────────────────
+        function toYouTubeEmbed(url) {
+            if (!url) return null;
+            let m = url.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+            if (m) return `https://www.youtube.com/embed/${m[1]}`;
+            m = url.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+            if (m) return `https://www.youtube.com/embed/${m[1]}`;
+            m = url.match(/youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/);
+            if (m) return `https://www.youtube.com/embed/${m[1]}`;
+            return null;
         }
 
         // ── Match cards ───────────────────────────────────────
@@ -410,12 +456,22 @@
                     const marginNote = margin > 0 ? ` · ${margin}-goal margin` : '';
                     const badgeRow = badges.length ? `<div class="flex flex-wrap gap-1.5 mb-1.5">${badges.join('')}</div>` : '';
 
+                    const embedUrl = toYouTubeEmbed(m.highlight_url);
+                    const videoBlock = embedUrl
+                        ? `<div class="mt-2.5 rounded-xl overflow-hidden aspect-video">
+                               <iframe src="${embedUrl}?rel=0&modestbranding=1" class="w-full h-full" frameborder="0"
+                                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                   allowfullscreen loading="lazy"></iframe>
+                           </div>`
+                        : '';
+
                     highlightsSection = `
                     <div class="px-4 pb-3">
                         <div class="border-t border-slate-700/60 pt-2.5">
                             <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">⚡ Highlights</p>
                             ${badgeRow}
                             <p class="text-xs text-slate-400">${outcome}${marginNote}</p>
+                            ${videoBlock}
                         </div>
                     </div>`;
                 }
@@ -554,6 +610,7 @@
             if (!match)                     return alert("Select a match first.");
             if (isNaN(actH) || isNaN(actA)) return alert("Enter valid scores for both teams.");
 
+            const highlightUrl = document.getElementById('highlightUrl').value.trim() || null;
             isSettling = true;
             statusEl.className   = 'text-xs rounded-xl p-3 bg-slate-700 text-slate-300';
             statusEl.textContent = '⏳ Processing…';
@@ -570,8 +627,10 @@
             }
 
             // 1. Lock match as finished
+            const settlePayload = { home_score: actH, away_score: actA, is_finished: true };
+            if (highlightUrl) settlePayload.highlight_url = highlightUrl;
             const { error: matchErr } = await db.from('match_results')
-                .update({ home_score: actH, away_score: actA, is_finished: true })
+                .update(settlePayload)
                 .eq('match_label', match);
 
             if (matchErr) {
@@ -614,6 +673,7 @@
 
             document.getElementById('actualHome').value = '';
             document.getElementById('actualAway').value = '';
+            document.getElementById('highlightUrl').value = '';
 
             isSettling = false;
             await Promise.all([fetchAllData(), populateMatchDropdowns()]);
@@ -660,6 +720,61 @@
             alert('✅ Scores recalculated from scratch!');
             await fetchAllData();
         }
+
+        // ── Populate highlight dropdown (settled matches) ─────
+        function populateHighlightDropdown() {
+            const sel = document.getElementById('highlightMatchSelect');
+            if (!sel) return;
+            const settled = allMatchesCache.filter(m => m.is_finished);
+            if (!settled.length) {
+                sel.innerHTML = '<option value="">No settled matches yet</option>';
+                return;
+            }
+            const current = sel.value;
+            sel.innerHTML = '<option value="">Choose settled match…</option>';
+            settled.forEach(m => {
+                const tag = m.highlight_url ? ' 📹' : '';
+                sel.innerHTML += `<option value="${m.match_label}" ${m.match_label === current ? 'selected' : ''}>${m.match_label}${tag}</option>`;
+            });
+        }
+
+        // ── Open FIFA YouTube search for selected match ───────
+        function searchFifaYouTube(selectId) {
+            const sel = document.getElementById(selectId);
+            const label = sel?.value || '';
+            const query = encodeURIComponent((label || 'FIFA 2026') + ' highlights');
+            window.open(`https://www.youtube.com/@FIFA/search?query=${query}`, '_blank', 'noopener');
+        }
+
+        // ── Save / update highlight URL for settled match ─────
+        document.getElementById('highlightForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!ensureAdminUnlocked()) return;
+            const match = document.getElementById('highlightMatchSelect').value;
+            const url   = document.getElementById('highlightUrlUpdate').value.trim();
+            const statusEl = document.getElementById('highlightStatus');
+
+            if (!match) return alert('Select a settled match first.');
+            if (!url)   return alert('Paste a YouTube URL.');
+
+            statusEl.className   = 'text-xs rounded-xl p-3 bg-slate-700 text-slate-300';
+            statusEl.textContent = '⏳ Saving…';
+            statusEl.classList.remove('hidden');
+
+            const { error } = await db.from('match_results')
+                .update({ highlight_url: url })
+                .eq('match_label', match);
+
+            if (error) {
+                statusEl.className   = 'text-xs rounded-xl p-3 bg-red-900 text-red-300';
+                statusEl.textContent = '❌ ' + error.message;
+            } else {
+                statusEl.className   = 'text-xs rounded-xl p-3 bg-emerald-900/70 text-emerald-300';
+                statusEl.textContent = '✅ Highlight saved!';
+                document.getElementById('highlightUrlUpdate').value = '';
+                await fetchAllData();
+            }
+        });
 
         // ── Reset system ──────────────────────────────────────
         async function resetSystem() {
