@@ -130,46 +130,63 @@
             <div id="content-admin" style="display:none">
                 <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
                     <h2 class="text-sm font-bold text-red-400 uppercase tracking-wider mb-5">🛠️ Parent Scorekeeper Console</h2>
-                    <form id="adminForm" class="space-y-4">
-                        <div>
-                            <label class="block text-xs text-slate-400 mb-1">Match to Settle</label>
-                            <select id="adminMatchSelect" class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm text-white outline-none"></select>
-                        </div>
-                        <div>
-                            <label class="block text-xs text-slate-400 mb-2">Final Score</label>
-                            <div class="flex gap-3 items-center">
-                                <div class="flex-1 text-center">
-                                    <span id="adminHomeLabel" class="block text-xs text-slate-500 mb-1">Home</span>
-                                    <input type="number" id="actualHome" min="0" placeholder="0"
-                                        class="w-full bg-slate-700 text-center text-2xl font-black p-3 rounded-xl text-white border border-slate-600 outline-none focus:border-red-500">
-                                </div>
-                                <span class="text-2xl font-black text-slate-600 mt-5">–</span>
-                                <div class="flex-1 text-center">
-                                    <span id="adminAwayLabel" class="block text-xs text-slate-500 mb-1">Away</span>
-                                    <input type="number" id="actualAway" min="0" placeholder="0"
-                                        class="w-full bg-slate-700 text-center text-2xl font-black p-3 rounded-xl text-white border border-slate-600 outline-none focus:border-red-500">
+                    <div id="adminLockPanel" class="space-y-4">
+                        <p class="text-sm text-slate-300">Enter the admin password to reveal match settlement and score controls.</p>
+                        <form id="adminUnlockForm" class="space-y-3">
+                            <div>
+                                <label for="adminPasswordInput" class="block text-xs font-bold uppercase tracking-wide text-slate-400 mb-1">Admin Password</label>
+                                <input type="password" id="adminPasswordInput" autocomplete="current-password"
+                                    class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-white outline-none focus:border-red-500"
+                                    placeholder="Enter password">
+                            </div>
+                            <p id="adminPasswordError" class="hidden text-xs text-red-400">❌ Wrong password. Please try again.</p>
+                            <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3 rounded-xl uppercase tracking-wide transition">
+                                Unlock Admin
+                            </button>
+                        </form>
+                    </div>
+                    <div id="adminControls" class="space-y-4" style="display:none">
+                        <form id="adminForm" class="space-y-4">
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">Match to Settle</label>
+                                <select id="adminMatchSelect" class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm text-white outline-none"></select>
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-2">Final Score</label>
+                                <div class="flex gap-3 items-center">
+                                    <div class="flex-1 text-center">
+                                        <span id="adminHomeLabel" class="block text-xs text-slate-500 mb-1">Home</span>
+                                        <input type="number" id="actualHome" min="0" placeholder="0"
+                                            class="w-full bg-slate-700 text-center text-2xl font-black p-3 rounded-xl text-white border border-slate-600 outline-none focus:border-red-500">
+                                    </div>
+                                    <span class="text-2xl font-black text-slate-600 mt-5">–</span>
+                                    <div class="flex-1 text-center">
+                                        <span id="adminAwayLabel" class="block text-xs text-slate-500 mb-1">Away</span>
+                                        <input type="number" id="actualAway" min="0" placeholder="0"
+                                            class="w-full bg-slate-700 text-center text-2xl font-black p-3 rounded-xl text-white border border-slate-600 outline-none focus:border-red-500">
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        <div id="settleStatus" class="hidden text-xs rounded-xl p-3 leading-relaxed"></div>
-                        <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3 rounded-xl uppercase tracking-wide transition">
-                            Settle Match &amp; Award Points
-                        </button>
-                    </form>
-                    <div class="mt-6 pt-5 border-t border-slate-700 space-y-3">
-                        <div class="flex justify-between items-center">
-                            <span class="text-xs text-slate-400 font-semibold">Fix wrong scores without clearing data</span>
-                            <button type="button" onclick="recalculateAllScores()"
-                                class="bg-slate-700 hover:bg-amber-900/50 text-amber-400 border border-amber-900/50 px-3 py-2 rounded-lg text-xs font-bold transition">
-                                🔁 Recalculate All Scores
+                            <div id="settleStatus" class="hidden text-xs rounded-xl p-3 leading-relaxed"></div>
+                            <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3 rounded-xl uppercase tracking-wide transition">
+                                Settle Match &amp; Award Points
                             </button>
-                        </div>
-                        <div class="flex justify-between items-center">
-                            <span class="text-xs text-slate-500">Danger zone — clears everything</span>
-                            <button type="button" onclick="resetSystem()"
-                                class="bg-slate-700 hover:bg-red-950 text-red-400 border border-red-900/50 px-3 py-2 rounded-lg text-xs font-bold transition">
-                                🚨 Reset All Scores
-                            </button>
+                        </form>
+                        <div class="mt-6 pt-5 border-t border-slate-700 space-y-3">
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs text-slate-400 font-semibold">Fix wrong scores without clearing data</span>
+                                <button type="button" onclick="recalculateAllScores()"
+                                    class="bg-slate-700 hover:bg-amber-900/50 text-amber-400 border border-amber-900/50 px-3 py-2 rounded-lg text-xs font-bold transition">
+                                    🔁 Recalculate All Scores
+                                </button>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs text-slate-500">Danger zone — clears everything</span>
+                                <button type="button" onclick="resetSystem()"
+                                    class="bg-slate-700 hover:bg-red-950 text-red-400 border border-red-900/50 px-3 py-2 rounded-lg text-xs font-bold transition">
+                                    🚨 Reset All Scores
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -249,6 +266,7 @@
     <script>
         const SUPABASE_URL = "https://loksiyqxesuuuhxaxqde.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxva3NpeXF4ZXN1dXVoeGF4cWRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyNTA5NzgsImV4cCI6MjA5NjgyNjk3OH0.bo7pgG6l3cF4A4zfhinqZ0Ni18xiYj3lf8M7ZMY4VwM";
+        const ADMIN_PASSWORD = "220284";
         const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         // ── Global caches ─────────────────────────────────────
@@ -257,6 +275,7 @@
         let allPlayersCache     = [];
         let currentFilter       = 'all';
         let isSettling          = false;
+        let isAdminUnlocked     = false;
 
         // ── Tab switching ─────────────────────────────────────
         function switchTab(tab) {
@@ -303,8 +322,29 @@
             return pts;
         }
 
+        function updateAdminAccessUI() {
+            const lockPanel = document.getElementById('adminLockPanel');
+            const controls = document.getElementById('adminControls');
+            if (!lockPanel || !controls) return;
+            lockPanel.style.display = isAdminUnlocked ? 'none' : 'block';
+            controls.style.display = isAdminUnlocked ? 'block' : 'none';
+        }
+
+        function showAdminPasswordError(show) {
+            const errorEl = document.getElementById('adminPasswordError');
+            if (!errorEl) return;
+            errorEl.classList.toggle('hidden', !show);
+        }
+
+        function ensureAdminUnlocked() {
+            if (isAdminUnlocked) return true;
+            alert('🔒 Unlock the Admin tab first.');
+            return false;
+        }
+
         // ── Init ──────────────────────────────────────────────
         async function initApp() {
+            updateAdminAccessUI();
             await Promise.all([fetchAllData(), populateMatchDropdowns()]);
         }
 
@@ -509,6 +549,25 @@
             document.getElementById('adminAwayLabel').textContent = this.value ? away : 'Away';
         });
 
+        document.getElementById('adminUnlockForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const passwordInput = document.getElementById('adminPasswordInput');
+            if (passwordInput.value === ADMIN_PASSWORD) {
+                isAdminUnlocked = true;
+                passwordInput.value = '';
+                showAdminPasswordError(false);
+                updateAdminAccessUI();
+                return;
+            }
+
+            isAdminUnlocked = false;
+            showAdminPasswordError(true);
+        });
+
+        document.getElementById('adminPasswordInput').addEventListener('input', function () {
+            showAdminPasswordError(false);
+        });
+
         // ── Add new player ────────────────────────────────────
         async function addNewPlayer() {
             const newName = prompt("Enter the new player's name:");
@@ -553,6 +612,7 @@
         // ── Settle match & award points ───────────────────────
         document.getElementById('adminForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            if (!ensureAdminUnlocked()) return;
             if (isSettling) return; // Prevent double-submission
             const match = document.getElementById('adminMatchSelect').value;
             const actH  = parseInt(document.getElementById('actualHome').value);
@@ -629,11 +689,7 @@
 
         // ── Recalculate all scores from settled matches ───────
         async function recalculateAllScores() {
-            const pwd = prompt("🔒 Password required\nHint: combine the smallest amicable pair into one string");
-            if (pwd !== "220284") {
-                if (pwd !== null) alert("❌ Wrong password.");
-                return;
-            }
+            if (!ensureAdminUnlocked()) return;
             if (!confirm("⚠️ This will recalculate EVERYONE's score from scratch using all settled matches.\nCurrent totals will be overwritten. Continue?")) return;
 
             // 1. Reset all scores to 0
@@ -675,11 +731,7 @@
 
         // ── Reset system ──────────────────────────────────────
         async function resetSystem() {
-            const pwd = prompt("🔒 Password required\nHint: combine the smallest amicable pair into one string");
-            if (pwd !== "220284") {
-                if (pwd !== null) alert("❌ Wrong password.");
-                return;
-            }
+            if (!ensureAdminUnlocked()) return;
             if (!confirm("⚠️ This will clear ALL scores, predictions, and reset every match. Are you sure?")) return;
 
             await db.from('match_results').update({ home_score: null, away_score: null, is_finished: false }).neq('match_label', '');
