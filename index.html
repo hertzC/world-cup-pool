@@ -290,6 +290,20 @@
             return { home: parts[0]?.trim() || label, away: parts[1]?.trim() || '?' };
         }
 
+        function formatHKT(dateStr) {
+            if (!dateStr) return null;
+            try {
+                const d = new Date(dateStr);
+                if (isNaN(d.getTime())) return null;
+                return d.toLocaleString('en-HK', {
+                    timeZone: 'Asia/Hong_Kong',
+                    month: 'short', day: 'numeric',
+                    hour: '2-digit', minute: '2-digit',
+                    hour12: false
+                }) + ' HKT';
+            } catch (e) { return null; }
+        }
+
         function calcPoints(predH, predA, actH, actA) {
             // Normalise to numbers in case DB returns strings
             predH = Number(predH); predA = Number(predA);
@@ -399,9 +413,49 @@
                     </div>`;
                 }).join('');
 
+                // Date/time in HKT
+                const dateStr = m.match_date || m.created_at || null;
+                const hktDate = formatHKT(dateStr);
+                const dateLine = hktDate
+                    ? `<p class="text-[10px] text-slate-500 mt-0.5">🗓 ${hktDate}</p>`
+                    : '';
+
+                // Highlights section for finished matches
+                let highlightsSection = '';
+                if (m.is_finished) {
+                    const hg = Number(m.home_score), ag = Number(m.away_score);
+                    const total = hg + ag;
+                    const margin = Math.abs(hg - ag);
+                    let outcome;
+                    if (hg > ag)      outcome = `${home} win`;
+                    else if (ag > hg) outcome = `${away} win`;
+                    else              outcome = 'Draw';
+                    let marginNote;
+                    if (hg === ag)        marginNote = `Ended ${hg}–${ag}`;
+                    else if (margin === 1) marginNote = 'One-goal game';
+                    else                  marginNote = `Won by ${margin}`;
+                    const badges = [];
+                    if (hg === 0 || ag === 0) badges.push(`<span class="border text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-900/70 text-sky-300 border-sky-700/50">🧤 Clean Sheet</span>`);
+                    if (margin === 1)          badges.push(`<span class="border text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-900/70 text-orange-300 border-orange-700/50">⚡ Close Game</span>`);
+                    if (total >= 5)            badges.push(`<span class="border text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-900/70 text-pink-300 border-pink-700/50">🎆 Goal Fest</span>`);
+                    else if (total >= 4)       badges.push(`<span class="border text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-900/70 text-violet-300 border-violet-700/50">🔥 High Scoring</span>`);
+                    highlightsSection = `
+                    <div class="px-4 py-2.5 border-t border-slate-700/50 bg-slate-700/20">
+                        <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Highlights</p>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-xs font-bold text-white">${outcome}</span>
+                            <span class="text-[10px] text-slate-400">· ${marginNote}</span>
+                            ${badges.join('')}
+                        </div>
+                    </div>`;
+                }
+
                 return `<div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
                     <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between gap-3 flex-wrap">
-                        <p class="font-bold text-white">${home} <span class="text-slate-500 font-normal text-sm">vs</span> ${away}</p>
+                        <div>
+                            <p class="font-bold text-white">${home} <span class="text-slate-500 font-normal text-sm">vs</span> ${away}</p>
+                            ${dateLine}
+                        </div>
                         ${statusBadge}
                     </div>
                     <div class="px-4 py-3">
@@ -410,6 +464,7 @@
                             ${playerChips || '<span class="text-xs text-slate-600 italic">No predictions yet</span>'}
                         </div>
                     </div>
+                    ${highlightsSection}
                 </div>`;
             }).join('');
         }
