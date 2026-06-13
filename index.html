@@ -35,6 +35,10 @@
                 class="tab-btn flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 border-transparent text-slate-400">
                 🛠️ Admin
             </button>
+            <button onclick="switchTab('highlights')" id="tab-highlights"
+                class="tab-btn flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 border-transparent text-slate-400">
+                🎬 Highlights
+            </button>
         </div>
 
         <!-- ── Content ────────────────────────────────────── -->
@@ -123,6 +127,14 @@
                             Save Prediction 🚀
                         </button>
                     </form>
+                </div>
+            </div>
+
+            <!-- HIGHLIGHTS ─────────────────────────────────── -->
+            <div id="content-highlights" style="display:none">
+                <div id="highlightsList" class="space-y-3">
+                    <div class="animate-pulse bg-slate-700 h-28 rounded-2xl"></div>
+                    <div class="animate-pulse bg-slate-700 h-28 rounded-2xl"></div>
                 </div>
             </div>
 
@@ -264,7 +276,7 @@
                 b.classList.remove('border-indigo-500', 'text-indigo-400');
                 b.classList.add('border-transparent', 'text-slate-400');
             });
-            ['standings','matches','predict','admin'].forEach(t => {
+            ['standings','matches','predict','admin','highlights'].forEach(t => {
                 document.getElementById('content-' + t).style.display = 'none';
             });
             document.getElementById('tab-' + tab).classList.remove('border-transparent', 'text-slate-400');
@@ -282,6 +294,62 @@
             document.getElementById('filter-' + f).classList.remove('bg-slate-700', 'text-slate-400');
             document.getElementById('filter-' + f).classList.add('bg-indigo-600', 'text-white');
             renderMatchCards();
+        }
+
+        // ── Highlights helpers ────────────────────────────────
+        function getMatchBadges(h, a) {
+            const total  = h + a;
+            const margin = Math.abs(h - a);
+            const badges = [];
+            if (h === 0 || a === 0)  badges.push({ label: '🧤 Clean Sheet',   cls: 'bg-sky-900/70 text-sky-300 border-sky-700/50' });
+            if (total >= 5)          badges.push({ label: '🔥 Goal Fest',      cls: 'bg-orange-900/70 text-orange-300 border-orange-700/50' });
+            else if (total >= 4)     badges.push({ label: '⚡ High Scoring',   cls: 'bg-yellow-900/70 text-yellow-300 border-yellow-700/50' });
+            if (margin === 1)        badges.push({ label: '😬 Close Game',     cls: 'bg-purple-900/70 text-purple-300 border-purple-700/50' });
+            return badges;
+        }
+
+        function getOutcomeSummary(home, away, h, a) {
+            if (h > a)  return { text: `${home} win`, sub: `by ${h - a} goal${h - a !== 1 ? 's' : ''}`, cls: 'text-emerald-400' };
+            if (a > h)  return { text: `${away} win`, sub: `by ${a - h} goal${a - h !== 1 ? 's' : ''}`, cls: 'text-rose-400' };
+            return { text: 'Draw', sub: 'teams level', cls: 'text-amber-400' };
+        }
+
+        // ── Render highlights ─────────────────────────────────
+        function renderHighlights() {
+            const container = document.getElementById('highlightsList');
+            if (!container) return;
+
+            const finished = allMatchesCache.filter(m => m.is_finished);
+            if (!finished.length) {
+                container.innerHTML = `<div class="text-center text-slate-500 py-10 text-sm">No finished matches yet — check back after the first kick-off!</div>`;
+                return;
+            }
+
+            container.innerHTML = finished.map(m => {
+                const { home, away } = parseTeams(m.match_label);
+                const h = Number(m.home_score);
+                const a = Number(m.away_score);
+                const outcome = getOutcomeSummary(home, away, h, a);
+                const badges  = getMatchBadges(h, a);
+
+                const badgeHTML = badges.map(b =>
+                    `<span class="text-[10px] font-bold border px-2 py-0.5 rounded-full ${b.cls}">${b.label}</span>`
+                ).join('');
+
+                return `<div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
+                    <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between gap-3 flex-wrap">
+                        <p class="font-bold text-white">${home} <span class="text-slate-500 font-normal text-sm">vs</span> ${away}</p>
+                        <span class="shrink-0 bg-emerald-900/70 text-emerald-300 border border-emerald-700/50 text-sm font-black px-3 py-1 rounded-full">${h} – ${a}</span>
+                    </div>
+                    <div class="px-4 py-3 flex items-center justify-between flex-wrap gap-3">
+                        <div>
+                            <p class="text-base font-bold ${outcome.cls}">${outcome.text}</p>
+                            <p class="text-xs text-slate-500 mt-0.5">${outcome.sub}</p>
+                        </div>
+                        <div class="flex flex-wrap gap-1.5">${badgeHTML}</div>
+                    </div>
+                </div>`;
+            }).join('');
         }
 
         // ── Helpers ───────────────────────────────────────────
@@ -327,6 +395,7 @@
             renderLeaderboard();
             renderUserSelect();
             renderMatchCards();
+            renderHighlights();
         }
 
         // ── Leaderboard ───────────────────────────────────────
