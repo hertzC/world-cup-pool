@@ -69,11 +69,13 @@
 
             <!-- MATCHES ────────────────────────────────────── -->
             <div id="content-matches" style="display:none">
-                <div class="flex gap-2 mb-4">
+                <div class="flex gap-2 mb-4 flex-wrap">
                     <button onclick="filterMatches('all')" id="filter-all"
                         class="filter-pill bg-indigo-600 text-white text-xs font-bold px-4 py-1.5 rounded-full">All</button>
                     <button onclick="filterMatches('upcoming')" id="filter-upcoming"
                         class="filter-pill bg-slate-700 text-slate-400 text-xs font-bold px-4 py-1.5 rounded-full">Upcoming</button>
+                    <button onclick="filterMatches('nextday')" id="filter-nextday"
+                        class="filter-pill bg-slate-700 text-slate-400 text-xs font-bold px-4 py-1.5 rounded-full">Next Day</button>
                     <button onclick="filterMatches('finished')" id="filter-finished"
                         class="filter-pill bg-slate-700 text-slate-400 text-xs font-bold px-4 py-1.5 rounded-full">Finished</button>
                 </div>
@@ -228,6 +230,14 @@
         </div>
     </div>
 
+    <!-- ── Player Profile Modal ─────────────────────────── -->
+    <div id="playerModal" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" style="display:none !important">
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" onclick="closePlayerModal()"></div>
+        <div class="relative bg-slate-800 border border-slate-700 rounded-t-3xl sm:rounded-2xl w-full sm:max-w-lg max-h-[85vh] overflow-y-auto shadow-2xl">
+            <div id="playerModalContent" class="p-5"></div>
+        </div>
+    </div>
+
     <script>
         const SUPABASE_URL = "https://loksiyqxesuuuhxaxqde.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxva3NpeXF4ZXN1dXVoeGF4cWRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyNTA5NzgsImV4cCI6MjA5NjgyNjk3OH0.bo7pgG6l3cF4A4zfhinqZ0Ni18xiYj3lf8M7ZMY4VwM";
@@ -263,8 +273,11 @@
                 p.classList.remove('bg-indigo-600', 'text-white');
                 p.classList.add('bg-slate-700', 'text-slate-400');
             });
-            document.getElementById('filter-' + f).classList.remove('bg-slate-700', 'text-slate-400');
-            document.getElementById('filter-' + f).classList.add('bg-indigo-600', 'text-white');
+            const btn = document.getElementById('filter-' + f);
+            if (btn) {
+                btn.classList.remove('bg-slate-700', 'text-slate-400');
+                btn.classList.add('bg-indigo-600', 'text-white');
+            }
             renderMatchCards();
         }
 
@@ -335,6 +348,14 @@
             populateHighlightDropdown();
         }
 
+        // ── Player avatars (name → consistent emoji) ──────────
+        const AVATAR_POOL = ['🦁','🐯','🦊','🐺','🦅','🐬','🦄','🐲','🦋','🐻','🦜','🦩','🐙','🦈','🦁'];
+        function playerAvatar(name) {
+            let hash = 0;
+            for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) & 0xffff;
+            return AVATAR_POOL[hash % AVATAR_POOL.length];
+        }
+
         // ── Leaderboard ───────────────────────────────────────
         function renderLeaderboard() {
             const container = document.getElementById('leaderboard');
@@ -343,13 +364,35 @@
                 return;
             }
             const medals = ['🥇','🥈','🥉'];
-            container.innerHTML = allPlayersCache.map((p, i) => `
-                <div class="bg-slate-700 p-4 rounded-2xl border border-slate-600 relative">
+            // Compute streak & best match for each player
+            container.innerHTML = allPlayersCache.map((p, i) => {
+                const streak = getPlayerStreak(p.name);
+                const streakBadge = streak > 1 ? `<span class="text-[9px] font-bold text-orange-400 block mt-0.5">🔥 ${streak}-match streak</span>` : '';
+                return `
+                <div class="bg-slate-700 p-4 rounded-2xl border border-slate-600 relative cursor-pointer hover:border-indigo-500 transition"
+                     onclick="openPlayerModal('${p.name.replace(/'/g, "\\'")}')">
                     <span class="absolute top-2 right-2 text-base leading-none">${medals[i] || ''}</span>
+                    <div class="text-2xl mb-1">${playerAvatar(p.name)}</div>
                     <p class="text-xs font-bold text-slate-300 uppercase truncate pr-5">${p.name}</p>
                     <p class="text-3xl font-black text-amber-400 mt-1 leading-none">${p.total_score}</p>
                     <p class="text-xs text-slate-500 mt-0.5">pts</p>
-                </div>`).join('');
+                    ${streakBadge}
+                </div>`;
+            }).join('');
+        }
+
+        // ── Compute current winning streak for a player ───────
+        function getPlayerStreak(playerName) {
+            const settled = allMatchesCache.filter(m => m.is_finished);
+            let streak = 0;
+            for (let i = settled.length - 1; i >= 0; i--) {
+                const m = settled[i];
+                const pred = allPredictionsCache.find(p => p.player_name === playerName && p.match_label === m.match_label);
+                if (!pred) break;
+                const pts = calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score);
+                if (pts > 0) streak++; else break;
+            }
+            return streak;
         }
 
         // ── User select dropdown ──────────────────────────────
@@ -394,6 +437,17 @@
             let matches = allMatchesCache;
             if (currentFilter === 'upcoming') matches = matches.filter(m => !m.is_finished);
             if (currentFilter === 'finished')  matches = matches.filter(m =>  m.is_finished);
+            if (currentFilter === 'nextday') {
+                // "tomorrow" in HKT
+                const nowHKT  = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
+                const startHKT = new Date(nowHKT); startHKT.setHours(0,0,0,0); startHKT.setDate(startHKT.getDate() + 1);
+                const endHKT   = new Date(startHKT); endHKT.setDate(endHKT.getDate() + 1);
+                matches = matches.filter(m => {
+                    if (m.is_finished || !m.match_date) return false;
+                    const d = new Date(new Date(m.match_date).toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
+                    return d >= startHKT && d < endHKT;
+                });
+            }
 
             if (!matches.length) {
                 container.innerHTML = `<div class="text-center text-slate-500 py-10 text-sm">No matches found</div>`;
@@ -408,7 +462,7 @@
                     ? `<span class="shrink-0 bg-emerald-900/70 text-emerald-300 border border-emerald-700/50 text-xs font-bold px-2.5 py-1 rounded-full">✅ ${m.home_score} – ${m.away_score}</span>`
                     : `<span class="shrink-0 bg-indigo-900/70 text-indigo-300 border border-indigo-700/50 text-xs font-bold px-2.5 py-1 rounded-full">🕐 Upcoming</span>`;
 
-                const hktDate = formatHKT(m.match_date || m.created_at || null);
+                const hktDate = formatHKT(m.match_date || null);
                 const dateLine = hktDate
                     ? `<p class="text-[10px] text-slate-500 mt-0.5">🕐 ${hktDate} HKT</p>`
                     : '';
@@ -775,6 +829,104 @@
                 await fetchAllData();
             }
         });
+
+        // ── Player Profile Modal ──────────────────────────────
+        function openPlayerModal(playerName) {
+            const settled = allMatchesCache.filter(m => m.is_finished);
+            const player  = allPlayersCache.find(p => p.name === playerName);
+            if (!player) return;
+
+            const rows = settled.map(m => {
+                const pred = allPredictionsCache.find(p => p.player_name === playerName && p.match_label === m.match_label);
+                const pts  = pred ? calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score) : null;
+                const { home, away } = parseTeams(m.match_label);
+
+                let ptsBadge = `<span class="text-slate-600 text-xs">–</span>`;
+                let predText = `<span class="text-slate-600 text-xs italic">no pick</span>`;
+                let rowBg    = '';
+
+                if (pred !== undefined && pts !== null) {
+                    predText = `<span class="font-bold text-white">${pred.pred_home}–${pred.pred_away}</span>`;
+                    if (pts === 5) {
+                        ptsBadge = `<span class="bg-amber-500 text-slate-900 font-black text-xs px-2 py-0.5 rounded-full">⭐ 5</span>`;
+                        rowBg = 'bg-amber-900/20';
+                    } else if (pts > 0) {
+                        ptsBadge = `<span class="bg-emerald-700 text-white font-bold text-xs px-2 py-0.5 rounded-full">+${pts}</span>`;
+                        rowBg = 'bg-emerald-900/10';
+                    } else {
+                        ptsBadge = `<span class="bg-slate-700 text-slate-400 font-bold text-xs px-2 py-0.5 rounded-full">0</span>`;
+                        rowBg = 'bg-red-900/10';
+                    }
+                }
+
+                return `<div class="flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl ${rowBg}">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-xs font-semibold text-white truncate">${home} <span class="text-slate-500">vs</span> ${away}</p>
+                        <p class="text-[10px] text-slate-500">Result: ${m.home_score}–${m.away_score} &nbsp;·&nbsp; Your pick: ${predText}</p>
+                    </div>
+                    <div class="shrink-0">${ptsBadge}</div>
+                </div>`;
+            }).join('');
+
+            // Accuracy stats
+            const predsPlayed = settled.filter(m => allPredictionsCache.find(p => p.player_name === playerName && p.match_label === m.match_label));
+            const exactCount  = predsPlayed.filter(m => {
+                const pred = allPredictionsCache.find(p => p.player_name === playerName && p.match_label === m.match_label);
+                return calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score) === 5;
+            }).length;
+            const scoringCount = predsPlayed.filter(m => {
+                const pred = allPredictionsCache.find(p => p.player_name === playerName && p.match_label === m.match_label);
+                return calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score) > 0;
+            }).length;
+
+            const streak = getPlayerStreak(playerName);
+            const rank   = allPlayersCache.findIndex(p => p.name === playerName) + 1;
+
+            const rankEmoji = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+
+            document.getElementById('playerModalContent').innerHTML = `
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-3">
+                        <span class="text-4xl">${playerAvatar(playerName)}</span>
+                        <div>
+                            <p class="font-black text-lg text-white leading-tight">${playerName}</p>
+                            <p class="text-xs text-slate-400">${rankEmoji} · ${player.total_score} pts total</p>
+                        </div>
+                    </div>
+                    <button onclick="closePlayerModal()" class="text-slate-500 hover:text-white text-xl leading-none p-1">✕</button>
+                </div>
+                <div class="grid grid-cols-3 gap-2 mb-4 text-center">
+                    <div class="bg-slate-700 rounded-xl p-3">
+                        <p class="text-xl font-black text-amber-400">${predsPlayed.length}</p>
+                        <p class="text-[10px] text-slate-500 uppercase mt-0.5">Played</p>
+                    </div>
+                    <div class="bg-slate-700 rounded-xl p-3">
+                        <p class="text-xl font-black text-emerald-400">${exactCount}</p>
+                        <p class="text-[10px] text-slate-500 uppercase mt-0.5">Exact ⭐</p>
+                    </div>
+                    <div class="bg-slate-700 rounded-xl p-3">
+                        <p class="text-xl font-black text-orange-400">${streak}</p>
+                        <p class="text-[10px] text-slate-500 uppercase mt-0.5">🔥 Streak</p>
+                    </div>
+                </div>
+                ${settled.length ? `
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Match by Match</p>
+                <div class="space-y-1">${rows}</div>` : '<p class="text-slate-500 text-sm text-center py-4">No settled matches yet</p>'}
+            `;
+
+            const modal = document.getElementById('playerModal');
+            modal.style.removeProperty('display');
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closePlayerModal() {
+            const modal = document.getElementById('playerModal');
+            modal.style.display = 'none';
+            document.body.style.overflow = '';
+        }
+
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closePlayerModal(); });
 
         // ── Reset system ──────────────────────────────────────
         async function resetSystem() {
