@@ -207,6 +207,15 @@
                             </form>
                         </div>
 
+                        <div class="pt-5 mt-5 border-t border-slate-700/60 space-y-3">
+                            <p class="text-xs font-bold text-green-400 uppercase tracking-wider">📲 WhatsApp Reminder</p>
+                            <p class="text-xs text-slate-400">Send a reminder to anyone who hasn't predicted tomorrow's matches.</p>
+                            <button type="button" onclick="sendWhatsAppReminder()"
+                                class="w-full bg-green-700 hover:bg-green-600 text-white font-black py-3 rounded-xl uppercase tracking-wide transition">
+                                📲 Remind on WhatsApp
+                            </button>
+                        </div>
+
                         <div class="mt-6 pt-5 border-t border-slate-700 space-y-3">
                             <div class="flex justify-between items-center">
                                 <span class="text-xs text-slate-400 font-semibold">Fix wrong scores without clearing data</span>
@@ -740,6 +749,59 @@
         });
 
         // ── Recalculate all scores from settled matches ───────
+        // ── WhatsApp reminder for missing predictions ────────
+        function sendWhatsAppReminder() {
+            if (!ensureAdminUnlocked()) return;
+
+            // Find tomorrow's matches in HKT
+            const nowHKT   = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
+            const startHKT = new Date(nowHKT); startHKT.setHours(0,0,0,0); startHKT.setDate(startHKT.getDate() + 1);
+            const endHKT   = new Date(startHKT); endHKT.setDate(endHKT.getDate() + 1);
+
+            const tomorrowMatches = allMatchesCache.filter(m => {
+                if (m.is_finished || !m.match_date) return false;
+                const d = new Date(new Date(m.match_date).toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
+                return d >= startHKT && d < endHKT;
+            });
+
+            if (!tomorrowMatches.length) {
+                alert('No matches scheduled for tomorrow.');
+                return;
+            }
+
+            const allPlayerNames = allPlayersCache.map(p => p.name);
+
+            // For each tomorrow match, find who hasn't predicted
+            const missing = [];
+            tomorrowMatches.forEach(m => {
+                const predictedBy = allPredictionsCache
+                    .filter(p => p.match_label === m.match_label)
+                    .map(p => p.player_name);
+                const missingFor = allPlayerNames.filter(n => !predictedBy.includes(n));
+                if (missingFor.length) missing.push({ match: m, players: missingFor });
+            });
+
+            if (!missing.length) {
+                alert('🎉 Everyone has predicted all of tomorrow\'s matches!');
+                return;
+            }
+
+            const tomorrowLabel = startHKT.toLocaleDateString('en-HK', { weekday: 'long', month: 'long', day: 'numeric' });
+            let msg = `⚽ World Cup 2026 – Predictions Reminder\n\n`;
+            msg += `📅 ${tomorrowLabel} (HKT)\n\n`;
+
+            missing.forEach(({ match, players }) => {
+                const { home, away } = parseTeams(match.match_label);
+                const kickoff = formatHKT(match.match_date);
+                msg += `🏟 ${home} vs ${away}  (${kickoff})\n`;
+                msg += `❌ Still needs to predict: ${players.join(', ')}\n\n`;
+            });
+
+            msg += `Submit at: ${window.location.href.split('?')[0]}`;
+
+            window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+        }
+
         async function recalculateAllScores() {
             if (!ensureAdminUnlocked()) return;
             if (!confirm("⚠️ This will recalculate EVERYONE's score from scratch using all settled matches.\nCurrent totals will be overwritten. Continue?")) return;
