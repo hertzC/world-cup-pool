@@ -348,12 +348,18 @@
             populateHighlightDropdown();
         }
 
-        // ── Player avatars (name → consistent emoji) ──────────
-        const AVATAR_POOL = ['🦁','🐯','🦊','🐺','🦅','🐬','🦄','🐲','🦋','🐻','🦜','🦩','🐙','🦈','🦁'];
-        function playerAvatar(name) {
+        // ── Player avatars (photo if set, else emoji) ────────
+        const AVATAR_POOL = ['🦁','🐯','🦊','🐺','🦥','🐬','🦄','🐲','🦋','🐻','🦜','🦩','🐙','🦈','🦁'];
+        function playerEmoji(name) {
             let hash = 0;
             for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) & 0xffff;
             return AVATAR_POOL[hash % AVATAR_POOL.length];
+        }
+        function playerAvatarHtml(playerObj, sizeClass = 'w-10 h-10 text-2xl') {
+            if (playerObj?.photo_url) {
+                return `<img src="${playerObj.photo_url}" alt="${playerObj.name}" class="${sizeClass} rounded-full object-cover border-2 border-slate-600">`;
+            }
+            return `<span class="${sizeClass} flex items-center justify-center text-2xl">${playerEmoji(playerObj?.name || '')}</span>`;
         }
 
         // ── Leaderboard ───────────────────────────────────────
@@ -372,7 +378,7 @@
                 <div class="bg-slate-700 p-4 rounded-2xl border border-slate-600 relative cursor-pointer hover:border-indigo-500 transition"
                      onclick="openPlayerModal('${p.name.replace(/'/g, "\\'")}')">
                     <span class="absolute top-2 right-2 text-base leading-none">${medals[i] || ''}</span>
-                    <div class="text-2xl mb-1">${playerAvatar(p.name)}</div>
+                    <div class="mb-1">${playerAvatarHtml(p, 'w-10 h-10 text-2xl')}</div>
                     <p class="text-xs font-bold text-slate-300 uppercase truncate pr-5">${p.name}</p>
                     <p class="text-3xl font-black text-amber-400 mt-1 leading-none">${p.total_score}</p>
                     <p class="text-xs text-slate-500 mt-0.5">pts</p>
@@ -887,7 +893,7 @@
             document.getElementById('playerModalContent').innerHTML = `
                 <div class="flex items-center justify-between mb-4">
                     <div class="flex items-center gap-3">
-                        <span class="text-4xl">${playerAvatar(playerName)}</span>
+                        ${playerAvatarHtml(player, 'w-14 h-14 text-4xl')}
                         <div>
                             <p class="font-black text-lg text-white leading-tight">${playerName}</p>
                             <p class="text-xs text-slate-400">${rankEmoji} · ${player.total_score} pts total</p>
