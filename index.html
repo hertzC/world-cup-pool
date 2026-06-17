@@ -468,7 +468,7 @@
                     ? `<span class="shrink-0 bg-emerald-900/70 text-emerald-300 border border-emerald-700/50 text-xs font-bold px-2.5 py-1 rounded-full">✅ ${m.home_score} – ${m.away_score}</span>`
                     : `<span class="shrink-0 bg-indigo-900/70 text-indigo-300 border border-indigo-700/50 text-xs font-bold px-2.5 py-1 rounded-full">🕐 Upcoming</span>`;
 
-                const hktDate = formatHKT(m.match_date || null);
+                const hktDate = formatHKT(m.match_date || m.created_at || null);
                 const dateLine = hktDate
                     ? `<p class="text-[10px] text-slate-500 mt-0.5">🕐 ${hktDate} HKT</p>`
                     : '';
