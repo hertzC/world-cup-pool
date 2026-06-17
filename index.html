@@ -6,6 +6,23 @@
     <title>Family World Cup Pool</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(22px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes floatCrown {
+            0%,100% { transform: translateY(0); }
+            50%     { transform: translateY(-8px); }
+        }
+        @keyframes goldPulse {
+            0%,100% { box-shadow: 0 0 12px 3px rgba(251,191,36,.45), 0 0 28px rgba(251,191,36,.2); }
+            50%     { box-shadow: 0 0 24px 8px rgba(251,191,36,.9),  0 0 50px rgba(251,191,36,.4); }
+        }
+        .podium-entry { opacity: 0; animation: slideUp .55s ease-out forwards; }
+        .crown-float  { animation: floatCrown 1.7s ease-in-out infinite; }
+        .gold-glow    { animation: goldPulse  2.3s ease-in-out infinite; }
+    </style>
 </head>
 <body class="bg-slate-900 text-slate-100 font-sans pb-10">
 
@@ -371,29 +388,140 @@
             return `<span class="${sizeClass} flex items-center justify-center text-2xl">${playerEmoji(playerObj?.name || '')}</span>`;
         }
 
+// ── Confetti ──────────────────────────────────────────
+        let confettiShown = false;
+
+        function launchConfetti() {
+            if (confettiShown) return;
+            confettiShown = true;
+            const canvas = document.createElement('canvas');
+            canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999';
+            document.body.appendChild(canvas);
+            const ctx = canvas.getContext('2d');
+            canvas.width  = window.innerWidth;
+            canvas.height = window.innerHeight;
+            const COLORS = ['#f59e0b','#6366f1','#ec4899','#10b981','#ef4444','#3b82f6','#a78bfa','#fbbf24'];
+            const pieces = Array.from({length: 100}, () => ({
+                x: Math.random() * canvas.width,
+                y: -(Math.random() * canvas.height * 0.6),
+                w: Math.random() * 10 + 5,
+                h: Math.random() * 6 + 3,
+                color: COLORS[Math.floor(Math.random() * COLORS.length)],
+                speed: Math.random() * 3 + 1.5,
+                angle: Math.random() * 360,
+                spin:  Math.random() * 6 - 3,
+                drift: Math.random() * 2 - 1
+            }));
+            let t0 = null;
+            const dur = 3800;
+            function frame(ts) {
+                if (!t0) t0 = ts;
+                const el = ts - t0;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.globalAlpha = el > dur * 0.65
+                    ? Math.max(0, 1 - (el - dur * 0.65) / (dur * 0.35)) : 1;
+                pieces.forEach(p => {
+                    p.y += p.speed; p.x += p.drift; p.angle += p.spin;
+                    ctx.save();
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate(p.angle * Math.PI / 180);
+                    ctx.fillStyle = p.color;
+                    ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+                    ctx.restore();
+                });
+                if (el < dur) requestAnimationFrame(frame); else canvas.remove();
+            }
+            requestAnimationFrame(frame);
+        }
+
+        function animateScores() {
+            document.querySelectorAll('.score-count').forEach(el => {
+                const target = parseInt(el.dataset.score, 10) || 0;
+                if (!target) { el.textContent = '0'; return; }
+                let t0 = null;
+                const dur = 900;
+                function step(ts) {
+                    if (!t0) t0 = ts;
+                    const prog = Math.min((ts - t0) / dur, 1);
+                    el.textContent = Math.round((1 - Math.pow(1 - prog, 3)) * target);
+                    if (prog < 1) requestAnimationFrame(step); else el.textContent = target;
+                }
+                requestAnimationFrame(step);
+            });
+        }
+
         // ── Leaderboard ───────────────────────────────────────
         function renderLeaderboard() {
             const container = document.getElementById('leaderboard');
             if (!allPlayersCache.length) {
-                container.innerHTML = `<p class="col-span-4 text-center text-slate-500 text-sm py-4">No players found</p>`;
+                container.className = 'text-center';
+                container.innerHTML = `<p class="text-slate-500 text-sm py-4">No players found</p>`;
                 return;
             }
-            const medals = ['🥇','🥈','🥉'];
-            // Compute streak & best match for each player
-            container.innerHTML = allPlayersCache.map((p, i) => {
-                const streak = getPlayerStreak(p.name);
-                const streakBadge = streak > 1 ? `<span class="text-[9px] font-bold text-orange-400 block mt-0.5">🔥 ${streak}-match streak</span>` : '';
+            container.className = ''; // override grid; layout is self-contained
+            const top3 = allPlayersCache.slice(0, 3);
+            const rest  = allPlayersCache.slice(3);
+
+            function podiumCard(player, rank, delay) {
+                if (!player) return '<div></div>';
+                const streak = getPlayerStreak(player.name);
+                const streakBadge = streak > 1
+                    ? `<span class="text-[9px] font-bold text-orange-400 block mt-0.5">🔥${streak}</span>` : '';
+                const safeN = player.name.replace(/'/g, "\\'");
+                const cfg = {
+                    1: { border:'border-amber-400', glow:'gold-glow', avatarSz:'w-14 h-14 text-3xl', scoreSz:'text-3xl', baseH:'h-20', baseBg:'bg-amber-500' },
+                    2: { border:'border-slate-400', glow:'',          avatarSz:'w-12 h-12 text-2xl', scoreSz:'text-2xl', baseH:'h-12', baseBg:'bg-slate-500' },
+                    3: { border:'border-amber-700', glow:'',          avatarSz:'w-11 h-11 text-xl',  scoreSz:'text-xl',  baseH:'h-8',  baseBg:'bg-amber-800' }
+                }[rank];
+                const crown = rank === 1
+                    ? `<div class="crown-float text-2xl mb-1 select-none">👑</div>`
+                    : `<div class="h-8 mb-1"></div>`;
                 return `
-                <div class="bg-slate-700 p-4 rounded-2xl border border-slate-600 relative cursor-pointer hover:border-indigo-500 transition"
-                     onclick="openPlayerModal('${p.name.replace(/'/g, "\\'")}')">
-                    <span class="absolute top-2 right-2 text-base leading-none">${medals[i] || ''}</span>
-                    <div class="mb-1">${playerAvatarHtml(p, 'w-10 h-10 text-2xl')}</div>
-                    <p class="text-xs font-bold text-slate-300 uppercase truncate pr-5">${p.name}</p>
-                    <p class="text-3xl font-black text-amber-400 mt-1 leading-none">${p.total_score}</p>
-                    <p class="text-xs text-slate-500 mt-0.5">pts</p>
-                    ${streakBadge}
+                <div class="flex flex-col items-center podium-entry" style="animation-delay:${delay}s">
+                    ${crown}
+                    <div class="${cfg.glow} bg-slate-700 border ${cfg.border} rounded-2xl p-2 sm:p-3 w-full text-center cursor-pointer hover:scale-105 transition-transform select-none"
+                         onclick="openPlayerModal('${safeN}')">
+                        <div class="flex justify-center mb-1">${playerAvatarHtml(player, cfg.avatarSz)}</div>
+                        <p class="text-[10px] sm:text-xs font-bold text-slate-200 uppercase truncate leading-tight">${player.name}</p>
+                        <p class="${cfg.scoreSz} font-black text-amber-400 leading-none score-count" data-score="${player.total_score}">0</p>
+                        <p class="text-[9px] text-slate-500">pts</p>
+                        ${streakBadge}
+                    </div>
+                    <div class="${cfg.baseBg} w-full ${cfg.baseH} rounded-b-xl flex items-center justify-center -mt-1">
+                        <span class="text-base font-black text-white/70">${rank}</span>
+                    </div>
                 </div>`;
-            }).join('');
+            }
+
+            const restHtml = rest.length ? `
+            <div class="space-y-2 mt-4">
+                ${rest.map((p, i) => {
+                    const streak = getPlayerStreak(p.name);
+                    const badge = streak > 1 ? `<span class="text-xs text-orange-400 ml-1">🔥${streak}</span>` : '';
+                    const safeN = p.name.replace(/'/g, "\\'");
+                    return `
+                    <div class="bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer hover:border-indigo-500 transition podium-entry"
+                         style="animation-delay:${0.55 + i * 0.09}s"
+                         onclick="openPlayerModal('${safeN}')">
+                        <span class="text-sm font-black text-slate-400 w-5 shrink-0">${i + 4}</span>
+                        ${playerAvatarHtml(p, 'w-9 h-9 text-xl shrink-0')}
+                        <span class="flex-1 text-sm font-bold text-slate-300 truncate">${p.name}</span>
+                        <span class="text-xl font-black text-amber-400 score-count" data-score="${p.total_score}">0</span>
+                        <span class="text-xs text-slate-500 ml-0.5">pts${badge}</span>
+                    </div>`;
+                }).join('')}
+            </div>` : '';
+
+            container.innerHTML = `
+            <div class="grid grid-cols-3 items-end gap-1 sm:gap-3 mb-2">
+                ${podiumCard(top3[1], 2, 0.25)}
+                ${podiumCard(top3[0], 1, 0.05)}
+                ${podiumCard(top3[2], 3, 0.45)}
+            </div>
+            ${restHtml}`;
+
+            setTimeout(animateScores, 60);
+            if (allPlayersCache[0]?.total_score > 0) launchConfetti();
         }
 
         // ── Compute current winning streak for a player ───────
