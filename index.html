@@ -233,6 +233,22 @@
                             </button>
                         </div>
 
+                        <div class="pt-5 mt-5 border-t border-slate-700/60 space-y-3">
+                            <p class="text-xs font-bold text-pink-400 uppercase tracking-wider">🎬 Player Intro Video</p>
+                            <p class="text-xs text-slate-400">Tap the avatar on the leaderboard to play. Paste a direct video URL (MP4/MOV from Supabase storage) or a YouTube link.</p>
+                            <form id="playerVideoForm" class="space-y-3">
+                                <select id="playerVideoSelect" class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm text-white outline-none">
+                                    <option value="">Choose player…</option>
+                                </select>
+                                <input type="url" id="playerVideoUrl" placeholder="Paste video URL or YouTube link…"
+                                    class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm text-white outline-none focus:border-pink-500">
+                                <div id="playerVideoStatus" class="hidden text-xs rounded-xl p-3 leading-relaxed"></div>
+                                <button type="submit" class="w-full bg-pink-600 hover:bg-pink-700 text-white font-black py-3 rounded-xl uppercase tracking-wide transition">
+                                    Save Intro Video 🎬
+                                </button>
+                            </form>
+                        </div>
+
                         <div class="mt-6 pt-5 border-t border-slate-700 space-y-3">
                             <div class="flex justify-between items-center">
                                 <span class="text-xs text-slate-400 font-semibold">Fix wrong scores without clearing data</span>
@@ -253,6 +269,17 @@
                 </div>
             </div>
 
+        </div>
+    </div>
+
+    <!-- ── Player Video Modal ───────────────────────────── -->
+    <div id="videoModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4" style="display:none !important">
+        <div class="absolute inset-0 bg-black/90 backdrop-blur-sm" onclick="closeVideoModal()"></div>
+        <div class="relative w-full max-w-lg">
+            <div id="videoModalHeader" class="text-center mb-3"></div>
+            <div id="videoModalPlayer" class="relative rounded-2xl overflow-hidden bg-black shadow-2xl"></div>
+            <button onclick="closeVideoModal()"
+                class="absolute -top-3 -right-3 bg-slate-700 hover:bg-slate-600 text-white w-9 h-9 rounded-full text-lg font-bold flex items-center justify-center shadow-lg z-10">✕</button>
         </div>
     </div>
 
@@ -372,6 +399,7 @@
             renderUserSelect();
             renderMatchCards();
             populateHighlightDropdown();
+            populatePlayerVideoSelect();
         }
 
         // ── Player avatars (photo if set, else emoji) ────────
@@ -386,6 +414,80 @@
                 return `<img src="${playerObj.photo_url}" alt="${playerObj.name}" class="${sizeClass} rounded-full object-cover border-2 border-slate-600">`;
             }
             return `<span class="${sizeClass} flex items-center justify-center text-2xl">${playerEmoji(playerObj?.name || '')}</span>`;
+        }
+
+        // ── Player intro video ────────────────────────────────
+        function toVideoEmbed(url) {
+            if (!url) return null;
+            // YouTube
+            let m = url.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+            if (m) return { type: 'yt', id: m[1] };
+            m = url.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+            if (m) return { type: 'yt', id: m[1] };
+            m = url.match(/youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/);
+            if (m) return { type: 'yt', id: m[1] };
+            // Direct video
+            if (/\.(mp4|mov|webm|m4v)(\?|$)/i.test(url)) return { type: 'direct', url };
+            // Fallback — treat as direct
+            return { type: 'direct', url };
+        }
+
+        function openPlayerVideo(playerName, event) {
+            if (event) event.stopPropagation();
+            const player = allPlayersCache.find(p => p.name === playerName);
+            if (!player?.video_url) return;
+
+            const embed = toVideoEmbed(player.video_url);
+            if (!embed) return;
+
+            const header = document.getElementById('videoModalHeader');
+            const playerEl = document.getElementById('videoModalPlayer');
+
+            header.innerHTML = `
+                <div class="flex items-center justify-center gap-3 mb-1">
+                    ${playerAvatarHtml(player, 'w-12 h-12 text-3xl')}
+                    <span class="text-xl font-black text-white">${player.name}</span>
+                </div>
+                <p class="text-xs text-slate-400">⭐ Star of the family pool</p>`;
+
+            if (embed.type === 'yt') {
+                playerEl.innerHTML = `<div class="aspect-video">
+                    <iframe src="https://www.youtube.com/embed/${embed.id}?autoplay=1&rel=0" allow="autoplay; encrypted-media" allowfullscreen
+                        class="w-full h-full"></iframe></div>`;
+            } else {
+                playerEl.innerHTML = `<video src="${embed.url}" controls autoplay playsinline
+                    class="w-full max-h-[60vh] object-contain bg-black"></video>`;
+            }
+
+            const modal = document.getElementById('videoModal');
+            modal.style.removeProperty('display');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeVideoModal() {
+            const modal = document.getElementById('videoModal');
+            modal.style.setProperty('display', 'none', 'important');
+            document.body.style.overflow = '';
+            // Stop video playback
+            const playerEl = document.getElementById('videoModalPlayer');
+            playerEl.innerHTML = '';
+        }
+
+        function populatePlayerVideoSelect() {
+            const sel = document.getElementById('playerVideoSelect');
+            if (!sel) return;
+            const current = sel.value;
+            sel.innerHTML = '<option value="">Choose player…</option>';
+            allPlayersCache.forEach(p => {
+                const hasVideo = p.video_url ? ' 🎬' : '';
+                sel.innerHTML += `<option value="${p.name}" ${p.name === current ? 'selected' : ''}>${p.name}${hasVideo}</option>`;
+            });
+            // Pre-fill URL if player already selected
+            if (current) {
+                const p = allPlayersCache.find(x => x.name === current);
+                const urlInput = document.getElementById('playerVideoUrl');
+                if (urlInput) urlInput.value = p?.video_url || '';
+            }
         }
 
 // ── Confetti ──────────────────────────────────────────
@@ -476,12 +578,20 @@
                 const crown = rank === 1
                     ? `<div class="crown-float text-2xl mb-1 select-none">👑</div>`
                     : `<div class="h-8 mb-1"></div>`;
+                const hasVideo = !!player.video_url;
+                const avatarRing = hasVideo ? 'ring-2 ring-pink-500 ring-offset-2 ring-offset-slate-700 rounded-full cursor-pointer' : '';
+                const videoClick = hasVideo ? `onclick="openPlayerVideo('${safeN}', event)"` : '';
                 return `
                 <div class="flex flex-col items-center podium-entry" style="animation-delay:${delay}s">
                     ${crown}
                     <div class="${cfg.glow} bg-slate-700 border ${cfg.border} rounded-2xl p-2 sm:p-3 w-full text-center cursor-pointer hover:scale-105 transition-transform select-none"
                          onclick="openPlayerModal('${safeN}')">
-                        <div class="flex justify-center mb-1">${playerAvatarHtml(player, cfg.avatarSz)}</div>
+                        <div class="flex justify-center mb-1 relative">
+                            <div class="${avatarRing}" ${videoClick} title="${hasVideo ? 'Tap to watch intro 🎬' : ''}">
+                                ${playerAvatarHtml(player, cfg.avatarSz)}
+                            </div>
+                            ${hasVideo ? `<span class="absolute -bottom-0.5 -right-0.5 text-[10px] leading-none select-none">🎬</span>` : ''}
+                        </div>
                         <p class="text-[10px] sm:text-xs font-bold text-slate-200 uppercase truncate leading-tight">${player.name}</p>
                         <p class="${cfg.scoreSz} font-black text-amber-400 leading-none score-count" data-score="${player.total_score}">0</p>
                         <p class="text-[9px] text-slate-500">pts</p>
@@ -499,12 +609,18 @@
                     const streak = getPlayerStreak(p.name);
                     const badge = streak > 1 ? `<span class="text-xs text-orange-400 ml-1">🔥${streak}</span>` : '';
                     const safeN = p.name.replace(/'/g, "\\'");
+                    const hasVideo = !!p.video_url;
+                    const avatarRing = hasVideo ? 'ring-2 ring-pink-500 ring-offset-1 ring-offset-slate-700 rounded-full cursor-pointer shrink-0' : 'shrink-0';
+                    const videoClick = hasVideo ? `onclick="openPlayerVideo('${safeN}', event)"` : '';
                     return `
                     <div class="bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer hover:border-indigo-500 transition podium-entry"
                          style="animation-delay:${0.55 + i * 0.09}s"
                          onclick="openPlayerModal('${safeN}')">
                         <span class="text-sm font-black text-slate-400 w-5 shrink-0">${i + 4}</span>
-                        ${playerAvatarHtml(p, 'w-9 h-9 text-xl shrink-0')}
+                        <div class="relative ${avatarRing}" ${videoClick}>
+                            ${playerAvatarHtml(p, 'w-9 h-9 text-xl')}
+                            ${hasVideo ? `<span class="absolute -bottom-0.5 -right-0.5 text-[9px] leading-none">🎬</span>` : ''}
+                        </div>
                         <span class="flex-1 text-sm font-bold text-slate-300 truncate">${p.name}</span>
                         <span class="text-xl font-black text-amber-400 score-count" data-score="${p.total_score}">0</span>
                         <span class="text-xs text-slate-500 ml-0.5">pts${badge}</span>
@@ -1026,6 +1142,40 @@
             }
         });
 
+        // Pre-fill video URL when player is selected in admin
+        document.getElementById('playerVideoSelect').addEventListener('change', function() {
+            const p = allPlayersCache.find(x => x.name === this.value);
+            document.getElementById('playerVideoUrl').value = p?.video_url || '';
+        });
+
+        document.getElementById('playerVideoForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!ensureAdminUnlocked()) return;
+            const name = document.getElementById('playerVideoSelect').value;
+            const url  = document.getElementById('playerVideoUrl').value.trim();
+            const statusEl = document.getElementById('playerVideoStatus');
+
+            if (!name) return alert('Choose a player first.');
+
+            statusEl.className   = 'text-xs rounded-xl p-3 bg-slate-700 text-slate-300';
+            statusEl.textContent = '⏳ Saving…';
+            statusEl.classList.remove('hidden');
+
+            const { error } = await db.from('family_members')
+                .update({ video_url: url || null })
+                .eq('name', name);
+
+            if (error) {
+                statusEl.className   = 'text-xs rounded-xl p-3 bg-red-900 text-red-300';
+                statusEl.textContent = '❌ ' + error.message;
+            } else {
+                statusEl.className   = 'text-xs rounded-xl p-3 bg-emerald-900/70 text-emerald-300';
+                statusEl.textContent = url ? '✅ Intro video saved! 🎬' : '✅ Video removed.';
+                await fetchAllData();
+                populatePlayerVideoSelect();
+            }
+        });
+
         // ── Player Profile Modal ──────────────────────────────
         function openPlayerModal(playerName) {
             const settled = allMatchesCache.filter(m => m.is_finished);
@@ -1122,7 +1272,7 @@
             document.body.style.overflow = '';
         }
 
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') closePlayerModal(); });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeVideoModal(); closePlayerModal(); } });
 
         // ── Reset system ──────────────────────────────────────
         async function resetSystem() {
