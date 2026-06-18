@@ -109,6 +109,7 @@
                     <button onclick="filterMatches('finished')" id="filter-finished"
                         class="filter-pill bg-slate-700 text-slate-400 text-xs font-bold px-4 py-1.5 rounded-full">Finished</button>
                 </div>
+                <div id="finishedDateFilters" class="hidden mb-3"></div>
                 <div id="matchesList" class="space-y-3">
                     <div class="animate-pulse bg-slate-700 h-28 rounded-2xl"></div>
                     <div class="animate-pulse bg-slate-700 h-28 rounded-2xl"></div>
@@ -354,6 +355,7 @@
         let allPlayersCache     = [];
         let previousRanks       = {};
         let currentFilter       = 'all';
+        let finishedDateFilter  = null;
         let isSettling          = false;
         let isAdminUnlocked     = false;
         let autoSyncInProgress  = false;
@@ -385,7 +387,100 @@
                 btn.classList.remove('bg-slate-700', 'text-slate-400');
                 btn.classList.add('bg-indigo-600', 'text-white');
             }
+            if (f !== 'finished') {
+                const dateWrap = document.getElementById('finishedDateFilters');
+                if (dateWrap) {
+                    dateWrap.classList.add('hidden');
+                    dateWrap.innerHTML = '';
+                }
+            }
             renderMatchCards();
+        }
+
+        function getMatchSortTimestamp(m) {
+            const d = new Date(m.match_date || m.created_at || 0).getTime();
+            return Number.isFinite(d) ? d : 0;
+        }
+
+        function getHktYmd(dateStr) {
+            if (!dateStr) return null;
+            const d = new Date(dateStr);
+            if (isNaN(d)) return null;
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Hong_Kong',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).formatToParts(d);
+
+            const y = parts.find(p => p.type === 'year')?.value;
+            const m = parts.find(p => p.type === 'month')?.value;
+            const day = parts.find(p => p.type === 'day')?.value;
+            if (!y || !m || !day) return null;
+            return `${y}-${m}-${day}`;
+        }
+
+        function getFinishedDateLabel(ymd) {
+            const d = new Date(`${ymd}T00:00:00+08:00`);
+            if (isNaN(d)) return ymd;
+            return d.toLocaleDateString('en-HK', {
+                timeZone: 'Asia/Hong_Kong',
+                weekday: 'short',
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+
+        function setFinishedDateFilter(ymd) {
+            finishedDateFilter = ymd;
+            renderMatchCards();
+        }
+
+        function renderFinishedDateFilters(sortedFinishedMatches) {
+            const wrap = document.getElementById('finishedDateFilters');
+            if (!wrap) return;
+
+            const dateKeys = [];
+            const seen = new Set();
+            sortedFinishedMatches.forEach(m => {
+                const key = getHktYmd(m.match_date || m.created_at || null);
+                if (!key || seen.has(key)) return;
+                seen.add(key);
+                dateKeys.push(key);
+            });
+
+            if (!dateKeys.length) {
+                wrap.classList.add('hidden');
+                wrap.innerHTML = '';
+                return;
+            }
+
+            if (!finishedDateFilter || (!dateKeys.includes(finishedDateFilter) && finishedDateFilter !== 'all')) {
+                finishedDateFilter = dateKeys[0];
+            }
+
+            const btnHtml = dateKeys.map(key => {
+                const active = finishedDateFilter === key;
+                return `<button type="button" onclick="setFinishedDateFilter('${key}')"
+                    class="text-[11px] font-bold px-3 py-1.5 rounded-full border transition ${active
+                        ? 'bg-indigo-600 text-white border-indigo-500'
+                        : 'bg-slate-800 text-slate-300 border-slate-600 hover:border-slate-400'}">
+                    ${getFinishedDateLabel(key)}
+                </button>`;
+            }).join('');
+
+            const allActive = finishedDateFilter === 'all';
+            wrap.innerHTML = `
+                <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Finished Dates</p>
+                <div class="flex flex-wrap gap-2">
+                    ${btnHtml}
+                    <button type="button" onclick="setFinishedDateFilter('all')"
+                        class="text-[11px] font-bold px-3 py-1.5 rounded-full border transition ${allActive
+                            ? 'bg-indigo-600 text-white border-indigo-500'
+                            : 'bg-slate-800 text-slate-300 border-slate-600 hover:border-slate-400'}">All</button>
+                </div>`;
+            wrap.classList.remove('hidden');
         }
 
         // ── Helpers ───────────────────────────────────────────
@@ -1160,7 +1255,18 @@
 
             let matches = allMatchesCache;
             if (currentFilter === 'upcoming') matches = matches.filter(m => !m.is_finished);
-            if (currentFilter === 'finished')  matches = matches.filter(m =>  m.is_finished);
+            if (currentFilter === 'finished') {
+                const finished = matches
+                    .filter(m => m.is_finished)
+                    .sort((a, b) => getMatchSortTimestamp(b) - getMatchSortTimestamp(a));
+
+                renderFinishedDateFilters(finished);
+
+                matches = finished;
+                if (finishedDateFilter && finishedDateFilter !== 'all') {
+                    matches = matches.filter(m => getHktYmd(m.match_date || m.created_at || null) === finishedDateFilter);
+                }
+            }
             if (currentFilter === 'nextday') {
                 // "tomorrow" in HKT
                 const nowHKT  = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
@@ -1171,6 +1277,14 @@
                     const d = new Date(new Date(m.match_date).toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
                     return d >= startHKT && d < endHKT;
                 });
+            }
+
+            if (currentFilter !== 'finished') {
+                const wrap = document.getElementById('finishedDateFilters');
+                if (wrap) {
+                    wrap.classList.add('hidden');
+                    wrap.innerHTML = '';
+                }
             }
 
             if (!matches.length) {
