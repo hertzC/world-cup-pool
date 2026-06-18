@@ -273,6 +273,15 @@
                         </div>
 
                         <div class="pt-5 mt-5 border-t border-slate-700/60 space-y-3">
+                            <p class="text-xs font-bold text-cyan-400 uppercase tracking-wider">🤖 Auto Sync Finished Matches</p>
+                            <p class="text-xs text-slate-400">Pull final score and available stats from live feed, then auto-award points.</p>
+                            <button type="button" onclick="syncFinishedMatchesNow()"
+                                class="w-full bg-cyan-700 hover:bg-cyan-600 text-white font-black py-3 rounded-xl uppercase tracking-wide transition">
+                                🤖 Sync Finished Matches Now
+                            </button>
+                        </div>
+
+                        <div class="pt-5 mt-5 border-t border-slate-700/60 space-y-3">
                             <p class="text-xs font-bold text-pink-400 uppercase tracking-wider">🎬 Player Intro Video</p>
                             <p class="text-xs text-slate-400">Tap the avatar on the leaderboard to play. Paste a direct video URL (MP4/MOV from Supabase storage) or a YouTube link.</p>
                             <form id="playerVideoForm" class="space-y-3">
@@ -334,6 +343,9 @@
         const SUPABASE_URL = "https://loksiyqxesuuuhxaxqde.supabase.co";
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxva3NpeXF4ZXN1dXVoeGF4cWRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyNTA5NzgsImV4cCI6MjA5NjgyNjk3OH0.bo7pgG6l3cF4A4zfhinqZ0Ni18xiYj3lf8M7ZMY4VwM";
         const ADMIN_PASSWORD = "220284";
+        const ESPN_WORLD_CUP_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
+        const AUTO_SYNC_INTERVAL_MS = 10 * 60 * 1000;
+        const END_OF_MATCH_BUFFER_MS = 140 * 60 * 1000;
         const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         // ── Global caches ─────────────────────────────────────
@@ -344,6 +356,8 @@
         let currentFilter       = 'all';
         let isSettling          = false;
         let isAdminUnlocked     = false;
+        let autoSyncInProgress  = false;
+        let autoSyncTimerId     = null;
 
         // ── Tab switching ─────────────────────────────────────
         function switchTab(tab) {
@@ -393,6 +407,274 @@
             return pts;
         }
 
+        function normalizeTeamName(name) {
+            return (name || '')
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9 ]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function canonicalTeamName(name) {
+            const n = normalizeTeamName(name);
+            const aliases = {
+                usa: 'united states',
+                'u s a': 'united states',
+                'korea republic': 'south korea',
+                'ir iran': 'iran',
+                'cote d ivoire': 'ivory coast'
+            };
+            return aliases[n] || n;
+        }
+
+        function sameTeamName(a, b) {
+            const x = canonicalTeamName(a);
+            const y = canonicalTeamName(b);
+            if (!x || !y) return false;
+            return x === y || x.includes(y) || y.includes(x);
+        }
+
+        function getCompetitionStatValue(competitor, statName) {
+            const stat = (competitor?.statistics || []).find(s => s.name === statName);
+            if (!stat || stat.displayValue === undefined || stat.displayValue === null) return null;
+            const n = Number(stat.displayValue);
+            return Number.isFinite(n) ? n : null;
+        }
+
+        function parseEventMinute(detail) {
+            if (detail?.clock?.displayValue) return detail.clock.displayValue;
+            if (typeof detail?.clock?.value === 'number') return `${Math.floor(detail.clock.value / 60)}'`;
+            return '';
+        }
+
+        function parseEspnFinishedEvent(event) {
+            const comp = event?.competitions?.[0];
+            if (!comp) return null;
+
+            const statusType = comp?.status?.type;
+            const isFinished = !!(statusType?.completed || statusType?.state === 'post');
+            if (!isFinished) return null;
+
+            const homeComp = (comp.competitors || []).find(c => c.homeAway === 'home');
+            const awayComp = (comp.competitors || []).find(c => c.homeAway === 'away');
+            if (!homeComp || !awayComp) return null;
+
+            const homeName = homeComp.team?.displayName || homeComp.team?.name || '';
+            const awayName = awayComp.team?.displayName || awayComp.team?.name || '';
+            const homeScore = Number(homeComp.score);
+            const awayScore = Number(awayComp.score);
+            if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return null;
+
+            const details = comp.details || [];
+            const homeId = String(homeComp.id);
+            const awayId = String(awayComp.id);
+
+            const goalLog = details
+                .filter(d => d.scoringPlay || /goal/i.test(d?.type?.text || ''))
+                .map(d => {
+                    const minute = parseEventMinute(d);
+                    const teamId = String(d?.team?.id || '');
+                    const teamLabel = teamId === homeId ? homeName : teamId === awayId ? awayName : 'Unknown';
+                    const athlete = d?.athletesInvolved?.[0]?.displayName || d?.type?.text || 'Goal';
+                    const tags = [];
+                    if (d?.ownGoal) tags.push('OG');
+                    if (d?.penaltyKick) tags.push('P');
+                    const suffix = tags.length ? ` (${tags.join(',')})` : '';
+                    return `${minute} ${athlete} (${teamLabel})${suffix}`.trim();
+                })
+                .join('\n') || null;
+
+            const yellowHome = details.filter(d => d?.yellowCard && String(d?.team?.id || '') === homeId).length;
+            const yellowAway = details.filter(d => d?.yellowCard && String(d?.team?.id || '') === awayId).length;
+            const redHome = details.filter(d => d?.redCard && String(d?.team?.id || '') === homeId).length;
+            const redAway = details.filter(d => d?.redCard && String(d?.team?.id || '') === awayId).length;
+
+            let possessionHome = getCompetitionStatValue(homeComp, 'possessionPct');
+            let possessionAway = getCompetitionStatValue(awayComp, 'possessionPct');
+            if (possessionHome !== null && possessionAway !== null) {
+                possessionHome = Math.round(possessionHome);
+                possessionAway = Math.max(0, Math.min(100, 100 - possessionHome));
+            } else {
+                possessionHome = null;
+                possessionAway = null;
+            }
+
+            return {
+                homeName,
+                awayName,
+                homeScore,
+                awayScore,
+                goalLog,
+                yellowHome,
+                yellowAway,
+                redHome,
+                redAway,
+                possessionHome,
+                possessionAway
+            };
+        }
+
+        function findFinishedEventForMatch(matchLabel, finishedEvents) {
+            const { home, away } = parseTeams(matchLabel);
+            return finishedEvents.find(evt =>
+                sameTeamName(home, evt.homeName) && sameTeamName(away, evt.awayName)
+            ) || null;
+        }
+
+        async function updateMatchWithStatsFallback(matchLabel, payload) {
+            const { error } = await db.from('match_results').update(payload).eq('match_label', matchLabel);
+            if (!error) return null;
+
+            // If optional stats columns are not created yet, still save final score + finished flag.
+            if (/column .* does not exist/i.test(error.message || '')) {
+                const fallback = {
+                    home_score: payload.home_score,
+                    away_score: payload.away_score,
+                    is_finished: payload.is_finished
+                };
+                const retry = await db.from('match_results').update(fallback).eq('match_label', matchLabel);
+                return retry.error || null;
+            }
+
+            return error;
+        }
+
+        async function awardPointsForMatch(matchLabel, actH, actA) {
+            const { data: preds, error: predErr } = await db.from('predictions').select('*').eq('match_label', matchLabel);
+            if (predErr) throw new Error(predErr.message);
+
+            for (const p of preds || []) {
+                const earned = calcPoints(p.pred_home, p.pred_away, actH, actA);
+                if (earned <= 0) continue;
+                const { data: member, error: memberErr } = await db.from('family_members')
+                    .select('total_score').eq('name', p.player_name).single();
+                if (memberErr) throw new Error(memberErr.message);
+                const newScore = (member?.total_score || 0) + earned;
+                const { error: scoreErr } = await db.from('family_members')
+                    .update({ total_score: newScore }).eq('name', p.player_name);
+                if (scoreErr) throw new Error(scoreErr.message);
+            }
+        }
+
+        function matchNeedsDetailedStats(m) {
+            const hasGoalLog = !!(m.goal_log && String(m.goal_log).trim());
+            const hasPossession = m.possession_home !== null && m.possession_home !== undefined && m.possession_away !== null && m.possession_away !== undefined;
+            const hasCards = [m.yellow_home, m.yellow_away, m.red_home, m.red_away].some(v => v !== null && v !== undefined);
+            return !(hasGoalLog || hasPossession || hasCards);
+        }
+
+        async function autoSyncFinishedMatches(options = {}) {
+            const { manual = false } = options;
+            if (autoSyncInProgress) return;
+
+            const now = Date.now();
+            const endedUnfinished = allMatchesCache.filter(m => {
+                if (m.is_finished || !m.match_date) return false;
+                const startMs = new Date(m.match_date).getTime();
+                if (!Number.isFinite(startMs)) return false;
+                return now >= startMs + END_OF_MATCH_BUFFER_MS;
+            });
+
+            // Backfill matches that were settled previously but still have empty detailed stats.
+            const finishedMissingStats = allMatchesCache.filter(m => m.is_finished && matchNeedsDetailedStats(m));
+            const candidates = [...endedUnfinished, ...finishedMissingStats];
+
+            if (!candidates.length) {
+                if (manual) alert('No ended matches to sync yet.');
+                return;
+            }
+
+            autoSyncInProgress = true;
+            try {
+                const res = await fetch(ESPN_WORLD_CUP_SCOREBOARD_URL);
+                if (!res.ok) throw new Error(`API request failed (${res.status})`);
+                const body = await res.json();
+                const finishedEvents = (body.events || [])
+                    .map(parseEspnFinishedEvent)
+                    .filter(Boolean);
+
+                let syncedCount = 0;
+                let backfilledCount = 0;
+
+                for (const match of candidates) {
+                    const source = findFinishedEventForMatch(match.match_label, finishedEvents);
+                    if (!source) continue;
+
+                    const { data: latest, error: stateErr } = await db.from('match_results')
+                        .select('is_finished,goal_log,possession_home,possession_away,yellow_home,yellow_away,red_home,red_away')
+                        .eq('match_label', match.match_label)
+                        .single();
+                    if (stateErr) continue;
+
+                    const alreadyFinished = !!latest?.is_finished;
+                    const statsMissing = !latest || matchNeedsDetailedStats(latest);
+                    if (alreadyFinished && !statsMissing) continue;
+
+                    const payload = {
+                        home_score: source.homeScore,
+                        away_score: source.awayScore,
+                        is_finished: true,
+                        goal_log: source.goalLog,
+                        possession_home: source.possessionHome,
+                        possession_away: source.possessionAway,
+                        yellow_home: source.yellowHome,
+                        yellow_away: source.yellowAway,
+                        red_home: source.redHome,
+                        red_away: source.redAway
+                    };
+
+                    const updateErr = await updateMatchWithStatsFallback(match.match_label, payload);
+                    if (updateErr) {
+                        console.error('Auto-sync update failed for', match.match_label, updateErr);
+                        continue;
+                    }
+
+                    if (alreadyFinished) {
+                        backfilledCount++;
+                    } else {
+                        try {
+                            await awardPointsForMatch(match.match_label, source.homeScore, source.awayScore);
+                            syncedCount++;
+                        } catch (awardErr) {
+                            console.error('Auto-sync points failed for', match.match_label, awardErr);
+                        }
+                    }
+                }
+
+                if (syncedCount > 0 || backfilledCount > 0) {
+                    await Promise.all([fetchAllData(), populateMatchDropdowns()]);
+                }
+
+                if (manual) {
+                    const parts = [];
+                    if (syncedCount > 0) parts.push(`settled ${syncedCount}`);
+                    if (backfilledCount > 0) parts.push(`backfilled stats for ${backfilledCount}`);
+                    alert(parts.length
+                        ? `✅ Auto-sync complete: ${parts.join(' and ')} match(es).`
+                        : 'No matching finished events found yet from live feed.');
+                }
+            } catch (err) {
+                console.error('Auto-sync failed:', err);
+                if (manual) alert('Auto-sync failed: ' + (err?.message || err));
+            } finally {
+                autoSyncInProgress = false;
+            }
+        }
+
+        function syncFinishedMatchesNow() {
+            if (!ensureAdminUnlocked()) return;
+            autoSyncFinishedMatches({ manual: true });
+        }
+
+        function startAutoSyncLoop() {
+            if (autoSyncTimerId) clearInterval(autoSyncTimerId);
+            autoSyncTimerId = setInterval(() => {
+                autoSyncFinishedMatches({ manual: false });
+            }, AUTO_SYNC_INTERVAL_MS);
+        }
+
         function updateAdminAccessUI() {
             const lockPanel = document.getElementById('adminLockPanel');
             const controls = document.getElementById('adminControls');
@@ -417,6 +699,8 @@
         async function initApp() {
             updateAdminAccessUI();
             await Promise.all([fetchAllData(), populateMatchDropdowns()]);
+            startAutoSyncLoop();
+            autoSyncFinishedMatches({ manual: false });
         }
 
         // ── Fetch all data → update caches → re-render ────────
