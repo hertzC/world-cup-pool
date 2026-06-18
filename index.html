@@ -623,11 +623,12 @@
             if (autoSyncInProgress) return;
 
             const now = Date.now();
+            const minAgeMs = manual ? 0 : END_OF_MATCH_BUFFER_MS;
             const endedUnfinished = allMatchesCache.filter(m => {
                 if (m.is_finished || !m.match_date) return false;
                 const startMs = new Date(m.match_date).getTime();
                 if (!Number.isFinite(startMs)) return false;
-                return now >= startMs + END_OF_MATCH_BUFFER_MS;
+                return now >= startMs + minAgeMs;
             });
 
             // Backfill matches that were settled previously but still have empty detailed stats.
@@ -635,7 +636,15 @@
             const candidates = [...endedUnfinished, ...finishedMissingStats];
 
             if (!candidates.length) {
-                if (manual) alert('No ended matches to sync yet.');
+                if (manual) {
+                    const finished = allMatchesCache.filter(m => m.is_finished);
+                    const missing = finished.filter(matchNeedsDetailedStats);
+                    if (finished.length && !missing.length) {
+                        alert('✅ All finished matches already have stats. Nothing to sync right now.');
+                    } else {
+                        alert('No ended matches to sync yet.');
+                    }
+                }
                 return;
             }
 
