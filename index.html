@@ -1349,33 +1349,46 @@
                     const badgeRow = badges.length ? `<div class="flex flex-wrap gap-1.5 mb-1.5">${badges.join('')}</div>` : '';
 
                     const goalEvents = (m.goal_log || '').split('\n').map(x => x.trim()).filter(Boolean);
-                    const goalsBlock = goalEvents.length
-                        ? `<div class="mt-2 bg-slate-700/40 border border-slate-700 rounded-xl p-2.5">
-                               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">⚽ Goals</p>
-                               <div class="space-y-1">${goalEvents.map(g => `<p class=\"text-xs text-slate-300\">${g}</p>`).join('')}</div>
-                           </div>`
-                        : '';
+                    const homeTag = `(${home})`.toLowerCase();
+                    const awayTag = `(${away})`.toLowerCase();
+                    const homeGoals = goalEvents.filter(g => g.toLowerCase().includes(homeTag));
+                    const awayGoals = goalEvents.filter(g => g.toLowerCase().includes(awayTag));
+                    const fallbackGoals = goalEvents.length && !homeGoals.length && !awayGoals.length;
 
                     const hasPossession = m.possession_home !== null && m.possession_home !== undefined && m.possession_away !== null && m.possession_away !== undefined;
-                    const possessionBlock = hasPossession
-                        ? `<div class="mt-2 bg-slate-700/40 border border-slate-700 rounded-xl p-2.5">
-                               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">📈 Possession</p>
-                               <div class="flex justify-between text-xs text-slate-300 mb-1"><span>${home}: ${m.possession_home}%</span><span>${away}: ${m.possession_away}%</span></div>
-                               <div class="h-2 bg-slate-700 rounded-full overflow-hidden flex">
+                    const hasCards = [m.yellow_home, m.yellow_away, m.red_home, m.red_away].some(v => v !== null && v !== undefined);
+                    const hasAnyStats = goalEvents.length || hasPossession || hasCards;
+
+                    const integratedStatsBlock = hasAnyStats
+                        ? `<div class="mt-2 bg-slate-700/40 border border-slate-700 rounded-xl p-3">
+                               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">📊 Match Stats</p>
+                               <div class="grid grid-cols-[76px,1fr,1fr] gap-x-2 gap-y-2 text-xs items-start">
+                                   <div></div>
+                                   <div class="text-slate-300 font-bold truncate">${home}</div>
+                                   <div class="text-slate-300 font-bold truncate">${away}</div>
+
+                                   <div class="text-slate-500 font-bold uppercase tracking-wide">Scorers</div>
+                                   <div class="text-slate-300 leading-relaxed">${homeGoals.length
+                                        ? homeGoals.map(g => `<p>${g}</p>`).join('')
+                                        : fallbackGoals
+                                            ? goalEvents.map(g => `<p>${g}</p>`).join('')
+                                            : '<span class="text-slate-600">-</span>'}</div>
+                                   <div class="text-slate-300 leading-relaxed">${awayGoals.length
+                                        ? awayGoals.map(g => `<p>${g}</p>`).join('')
+                                        : '<span class="text-slate-600">-</span>'}</div>
+
+                                   <div class="text-slate-500 font-bold uppercase tracking-wide">Possession</div>
+                                   <div class="text-cyan-300 font-semibold">${hasPossession ? `${m.possession_home}%` : '<span class="text-slate-600">-</span>'}</div>
+                                   <div class="text-indigo-300 font-semibold">${hasPossession ? `${m.possession_away}%` : '<span class="text-slate-600">-</span>'}</div>
+
+                                   <div class="text-slate-500 font-bold uppercase tracking-wide">Cards</div>
+                                   <div class="text-slate-300">🟨 ${m.yellow_home ?? 0} · 🟥 ${m.red_home ?? 0}</div>
+                                   <div class="text-slate-300">🟨 ${m.yellow_away ?? 0} · 🟥 ${m.red_away ?? 0}</div>
+                               </div>
+                               ${hasPossession ? `<div class="h-2 bg-slate-700 rounded-full overflow-hidden flex mt-2.5">
                                    <span class="bg-cyan-500" style="width:${m.possession_home}%;"></span>
                                    <span class="bg-indigo-500" style="width:${m.possession_away}%;"></span>
-                               </div>
-                           </div>`
-                        : '';
-
-                    const hasCards = [m.yellow_home, m.yellow_away, m.red_home, m.red_away].some(v => v !== null && v !== undefined);
-                    const cardsBlock = hasCards
-                        ? `<div class="mt-2 bg-slate-700/40 border border-slate-700 rounded-xl p-2.5">
-                               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">🟨🟥 Cards</p>
-                               <div class="grid grid-cols-2 gap-2 text-xs">
-                                   <div class="text-slate-300">${home}: 🟨 ${m.yellow_home ?? 0} · 🟥 ${m.red_home ?? 0}</div>
-                                   <div class="text-slate-300">${away}: 🟨 ${m.yellow_away ?? 0} · 🟥 ${m.red_away ?? 0}</div>
-                               </div>
+                               </div>` : ''}
                            </div>`
                         : '';
 
@@ -1394,9 +1407,7 @@
                             <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">⚡ Highlights</p>
                             ${badgeRow}
                             <p class="text-xs text-slate-400">${outcome}${marginNote}</p>
-                            ${goalsBlock}
-                            ${possessionBlock}
-                            ${cardsBlock}
+                            ${integratedStatsBlock}
                             ${videoBlock}
                         </div>
                     </div>`;
