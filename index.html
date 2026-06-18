@@ -137,6 +137,7 @@
                                 <select id="matchSelect" required class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-white outline-none">
                                     <option value="">Loading matches...</option>
                                 </select>
+                                <div id="predictMatchQuickPick" class="mt-2.5 flex flex-wrap gap-2"></div>
                             </div>
                         </div>
                         <div class="bg-slate-700/50 p-5 rounded-xl border border-slate-600 flex items-center justify-center gap-6 text-center">
@@ -530,6 +531,40 @@
             if (!code) return `<span>${teamName}</span>`;
             const img = getFlagImageUrl(code);
             return `<span class="inline-flex items-center gap-1.5 align-middle"><img src="${img}" alt="" aria-label="${code} flag" class="${sizeClass} rounded-[2px] border border-slate-500/40 shrink-0 object-cover" loading="lazy"> <span>${teamName}</span></span>`;
+        }
+
+        function renderPredictQuickPick(matches, selectedMatchLabel) {
+            const wrap = document.getElementById('predictMatchQuickPick');
+            if (!wrap) return;
+
+            if (!matches || !matches.length) {
+                wrap.innerHTML = '<p class="text-[11px] text-slate-500">No matches in next 2 days.</p>';
+                return;
+            }
+
+            wrap.innerHTML = matches.map(m => {
+                const { home, away } = parseTeams(m.match_label);
+                const active = m.match_label === selectedMatchLabel;
+                return `<button type="button" onclick="selectPredictMatch('${m.match_label.replace(/'/g, "\\'")}')"
+                    class="text-[11px] font-bold px-3 py-2 rounded-xl border transition ${active
+                        ? 'bg-emerald-700/30 border-emerald-500 text-emerald-200'
+                        : 'bg-slate-700 border-slate-600 text-slate-300 hover:border-slate-400'}">
+                    ${teamWithFlagHtml(home, 'w-3.5 h-2.5')} <span class="text-slate-500 mx-1">vs</span> ${teamWithFlagHtml(away, 'w-3.5 h-2.5')}
+                </button>`;
+            }).join('');
+        }
+
+        function selectPredictMatch(matchLabel) {
+            const sel = document.getElementById('matchSelect');
+            if (!sel) return;
+            sel.value = matchLabel;
+            sel.dispatchEvent(new Event('change'));
+            renderPredictQuickPick(
+                Array.from(sel.options)
+                    .filter(o => o.value)
+                    .map(o => ({ match_label: o.value })),
+                matchLabel
+            );
         }
 
         function calcPoints(predH, predA, actH, actA) {
@@ -1512,6 +1547,7 @@
             if (!open || !open.length) {
                 sel.innerHTML   = '<option value="">No upcoming matches</option>';
                 admin.innerHTML = '<option value="">No active matches</option>';
+                renderPredictQuickPick([], null);
                 return;
             }
 
@@ -1530,6 +1566,7 @@
 
             if (!predictCandidates.length) {
                 sel.innerHTML = '<option value="">No matches in next 2 days</option>';
+                renderPredictQuickPick([], null);
             } else {
                 predictCandidates.forEach(m => {
                     const { home, away } = parseTeams(m.match_label);
@@ -1537,6 +1574,12 @@
                     const label = `${teamWithFlagText(home)} vs ${teamWithFlagText(away)}${when ? ` · ${when}` : ''}`;
                     sel.innerHTML += `<option value="${m.match_label}" ${m.match_label === currentPredict ? 'selected' : ''}>${label}</option>`;
                 });
+                const selected = currentPredict && predictCandidates.some(m => m.match_label === currentPredict)
+                    ? currentPredict
+                    : predictCandidates[0].match_label;
+                sel.value = selected;
+                renderPredictQuickPick(predictCandidates, selected);
+                sel.dispatchEvent(new Event('change'));
             }
 
             open.forEach(m => {
@@ -1549,6 +1592,10 @@
             const { home, away } = parseTeams(this.value || '');
             document.getElementById('homeTeamLabel').innerHTML = this.value ? teamWithFlagHtml(home) : 'Home Team';
             document.getElementById('awayTeamLabel').innerHTML = this.value ? teamWithFlagHtml(away) : 'Away Team';
+            const optionsAsMatches = Array.from(this.options)
+                .filter(o => o.value)
+                .map(o => ({ match_label: o.value }));
+            renderPredictQuickPick(optionsAsMatches, this.value || null);
         });
 
         document.getElementById('adminMatchSelect').addEventListener('change', function () {
