@@ -1350,38 +1350,56 @@
                     const homeGoals = goalEvents.filter(g => g.toLowerCase().includes(homeTag));
                     const awayGoals = goalEvents.filter(g => g.toLowerCase().includes(awayTag));
                     const fallbackGoals = goalEvents.length && !homeGoals.length && !awayGoals.length;
+                    const cleanGoalLine = (line, teamName) => line
+                        .replace(new RegExp(`\\s*\\(${teamName.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\)\\s*$`, 'i'), '')
+                        .trim();
 
                     const hasPossession = m.possession_home !== null && m.possession_home !== undefined && m.possession_away !== null && m.possession_away !== undefined;
                     const hasCards = [m.yellow_home, m.yellow_away, m.red_home, m.red_away].some(v => v !== null && v !== undefined);
                     const hasAnyStats = goalEvents.length || hasPossession || hasCards;
+                    const hasTeamSplitGoals = homeGoals.length || awayGoals.length;
 
                     const integratedStatsBlock = hasAnyStats
                         ? `<div class="mt-2 bg-slate-700/40 border border-slate-700 rounded-xl p-3">
-                               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">📊 Match Stats</p>
-                               <div class="grid grid-cols-[76px,1fr,1fr] gap-x-2 gap-y-2 text-xs items-start">
-                                   <div></div>
-                                   <div class="text-slate-300 font-bold truncate">${home}</div>
-                                   <div class="text-slate-300 font-bold truncate">${away}</div>
-
-                                   <div class="text-slate-500 font-bold uppercase tracking-wide">Scorers</div>
-                                   <div class="text-slate-300 leading-relaxed">${homeGoals.length
-                                        ? homeGoals.map(g => `<p>${g}</p>`).join('')
-                                        : fallbackGoals
-                                            ? goalEvents.map(g => `<p>${g}</p>`).join('')
-                                            : '<span class="text-slate-600">-</span>'}</div>
-                                   <div class="text-slate-300 leading-relaxed">${awayGoals.length
-                                        ? awayGoals.map(g => `<p>${g}</p>`).join('')
-                                        : '<span class="text-slate-600">-</span>'}</div>
-
-                                   <div class="text-slate-500 font-bold uppercase tracking-wide">Possession</div>
-                                   <div class="text-cyan-300 font-semibold">${hasPossession ? `${m.possession_home}%` : '<span class="text-slate-600">-</span>'}</div>
-                                   <div class="text-indigo-300 font-semibold">${hasPossession ? `${m.possession_away}%` : '<span class="text-slate-600">-</span>'}</div>
-
-                                   <div class="text-slate-500 font-bold uppercase tracking-wide">Cards</div>
-                                   <div class="text-slate-300">🟨 ${m.yellow_home ?? 0} · 🟥 ${m.red_home ?? 0}</div>
-                                   <div class="text-slate-300">🟨 ${m.yellow_away ?? 0} · 🟥 ${m.red_away ?? 0}</div>
+                               <div class="flex items-center justify-between text-[11px] font-bold text-slate-300 mb-2.5">
+                                   <span class="truncate max-w-[38%]">${home}</span>
+                                   <span class="text-slate-500 uppercase tracking-wider text-[10px]">Team Stats</span>
+                                   <span class="truncate max-w-[38%] text-right">${away}</span>
                                </div>
-                               ${hasPossession ? `<div class="h-2 bg-slate-700 rounded-full overflow-hidden flex mt-2.5">
+
+                               ${goalEvents.length ? `<div class="grid grid-cols-3 gap-2 text-xs mb-3 pb-2.5 border-b border-slate-700/70 items-start">
+                                   <div class="text-slate-300 space-y-1 text-left">${homeGoals.length
+                                        ? homeGoals.map(g => `<p>${cleanGoalLine(g, home)}</p>`).join('')
+                                        : hasTeamSplitGoals
+                                            ? '<span class="text-slate-600">-</span>'
+                                            : fallbackGoals ? goalEvents.map(g => `<p>${g}</p>`).join('') : '<span class="text-slate-600">-</span>'}</div>
+                                   <div class="text-center text-slate-500 font-bold">⚽</div>
+                                   <div class="text-slate-300 space-y-1 text-right">${awayGoals.length
+                                        ? awayGoals.map(g => `<p>${cleanGoalLine(g, away)}</p>`).join('')
+                                        : hasTeamSplitGoals
+                                            ? '<span class="text-slate-600">-</span>'
+                                            : '<span class="text-slate-600">-</span>'}</div>
+                               </div>` : ''}
+
+                               <div class="space-y-2 text-sm">
+                                   <div class="grid grid-cols-3 items-center gap-2">
+                                       <p class="text-cyan-300 font-semibold text-left">${hasPossession ? `${m.possession_home}%` : '-'}</p>
+                                       <p class="text-slate-400 text-center text-xs uppercase tracking-wide">Possession</p>
+                                       <p class="text-indigo-300 font-semibold text-right">${hasPossession ? `${m.possession_away}%` : '-'}</p>
+                                   </div>
+                                   <div class="grid grid-cols-3 items-center gap-2">
+                                       <p class="text-yellow-300 font-semibold text-left">${m.yellow_home ?? 0}</p>
+                                       <p class="text-slate-400 text-center text-xs uppercase tracking-wide">Yellow Cards</p>
+                                       <p class="text-yellow-300 font-semibold text-right">${m.yellow_away ?? 0}</p>
+                                   </div>
+                                   <div class="grid grid-cols-3 items-center gap-2">
+                                       <p class="text-rose-300 font-semibold text-left">${m.red_home ?? 0}</p>
+                                       <p class="text-slate-400 text-center text-xs uppercase tracking-wide">Red Cards</p>
+                                       <p class="text-rose-300 font-semibold text-right">${m.red_away ?? 0}</p>
+                                   </div>
+                               </div>
+
+                               ${hasPossession ? `<div class="h-2 bg-slate-700 rounded-full overflow-hidden flex mt-3">
                                    <span class="bg-cyan-500" style="width:${m.possession_home}%;"></span>
                                    <span class="bg-indigo-500" style="width:${m.possession_away}%;"></span>
                                </div>` : ''}
