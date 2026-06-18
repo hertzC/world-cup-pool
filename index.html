@@ -516,6 +516,57 @@
             };
         }
 
+        function toDateYmdUTC(dateStr) {
+            const d = new Date(dateStr);
+            if (isNaN(d)) return null;
+            return d.toISOString().slice(0, 10).replace(/-/g, '');
+        }
+
+        function shiftYmd(ymd, offsetDays) {
+            const y = Number(ymd.slice(0, 4));
+            const m = Number(ymd.slice(4, 6));
+            const d = Number(ymd.slice(6, 8));
+            const dt = new Date(Date.UTC(y, m - 1, d));
+            dt.setUTCDate(dt.getUTCDate() + offsetDays);
+            return dt.toISOString().slice(0, 10).replace(/-/g, '');
+        }
+
+        async function fetchEspnFinishedEventsForMatches(matches) {
+            const ymdSet = new Set();
+            matches.forEach(m => {
+                const base = toDateYmdUTC(m.match_date);
+                if (!base) return;
+                // ESPN day windows can spill over UTC midnight, so include adjacent dates.
+                ymdSet.add(shiftYmd(base, -1));
+                ymdSet.add(base);
+                ymdSet.add(shiftYmd(base, 1));
+            });
+
+            if (!ymdSet.size) return [];
+
+            const results = await Promise.all(Array.from(ymdSet).map(async ymd => {
+                try {
+                    const res = await fetch(`${ESPN_WORLD_CUP_SCOREBOARD_URL}?dates=${ymd}`);
+                    if (!res.ok) return [];
+                    const body = await res.json();
+                    return body.events || [];
+                } catch {
+                    return [];
+                }
+            }));
+
+            const unique = [];
+            const seen = new Set();
+            results.flat().forEach(evt => {
+                const key = String(evt?.id || evt?.uid || '');
+                if (!key || seen.has(key)) return;
+                seen.add(key);
+                unique.push(evt);
+            });
+
+            return unique.map(parseEspnFinishedEvent).filter(Boolean);
+        }
+
         function findFinishedEventForMatch(matchLabel, finishedEvents) {
             const { home, away } = parseTeams(matchLabel);
             return finishedEvents.find(evt =>
@@ -588,12 +639,7 @@
 
             autoSyncInProgress = true;
             try {
-                const res = await fetch(ESPN_WORLD_CUP_SCOREBOARD_URL);
-                if (!res.ok) throw new Error(`API request failed (${res.status})`);
-                const body = await res.json();
-                const finishedEvents = (body.events || [])
-                    .map(parseEspnFinishedEvent)
-                    .filter(Boolean);
+                const finishedEvents = await fetchEspnFinishedEventsForMatches(candidates);
 
                 let syncedCount = 0;
                 let backfilledCount = 0;
