@@ -492,7 +492,7 @@
 
         function getFlagImageUrl(code) {
             if (!code) return null;
-            return `https://flagcdn.com/w40/${code.toLowerCase()}.png`;
+            return `https://hatscripts.github.io/circle-flags/flags/${code.toLowerCase()}.svg`;
         }
 
         function getCountryCode(teamName) {
@@ -529,7 +529,7 @@
             const code = getCountryCode(teamName);
             if (!code) return `<span>${teamName}</span>`;
             const img = getFlagImageUrl(code);
-            return `<span class="inline-flex items-center gap-1.5 align-middle"><img src="${img}" alt="${code} flag" class="${sizeClass} rounded-[2px] border border-slate-500/40 shrink-0" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'"> <span>${teamName}</span></span>`;
+            return `<span class="inline-flex items-center gap-1.5 align-middle"><img src="${img}" alt="" aria-label="${code} flag" class="${sizeClass} rounded-[2px] border border-slate-500/40 shrink-0 object-cover" loading="lazy"> <span>${teamName}</span></span>`;
         }
 
         function calcPoints(predH, predA, actH, actA) {
