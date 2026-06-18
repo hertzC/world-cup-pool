@@ -490,6 +490,11 @@
             return code.toUpperCase().replace(/./g, c => String.fromCodePoint(127397 + c.charCodeAt(0)));
         }
 
+        function getFlagImageUrl(code) {
+            if (!code) return null;
+            return `https://flagcdn.com/w40/${code.toLowerCase()}.png`;
+        }
+
         function getCountryCode(teamName) {
             const key = normalizeTeamName(teamName);
             const map = {
@@ -512,6 +517,19 @@
             const code = getCountryCode(teamName);
             const flag = code ? countryCodeToFlagEmoji(code) : '🏳️';
             return `${flag} ${teamName}`;
+        }
+
+        function teamWithFlagText(teamName) {
+            const code = getCountryCode(teamName);
+            if (!code) return teamName;
+            return `${countryCodeToFlagEmoji(code)} ${teamName} (${code})`;
+        }
+
+        function teamWithFlagHtml(teamName, sizeClass = 'w-4 h-3') {
+            const code = getCountryCode(teamName);
+            if (!code) return `<span>${teamName}</span>`;
+            const img = getFlagImageUrl(code);
+            return `<span class="inline-flex items-center gap-1.5 align-middle"><img src="${img}" alt="${code} flag" class="${sizeClass} rounded-[2px] border border-slate-500/40 shrink-0" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'"> <span>${teamName}</span></span>`;
         }
 
         function calcPoints(predH, predA, actH, actA) {
@@ -1391,9 +1409,9 @@
                     const integratedStatsBlock = hasAnyStats
                         ? `<div class="mt-2 bg-slate-700/40 border border-slate-700 rounded-xl p-3">
                                <div class="flex items-center justify-between text-[11px] font-bold text-slate-300 mb-2.5">
-                                   <span class="truncate max-w-[38%]">${teamWithFlag(home)}</span>
+                                   <span class="truncate max-w-[38%]">${teamWithFlagHtml(home)}</span>
                                    <span class="text-slate-500 uppercase tracking-wider text-[10px]">Team Stats</span>
-                                   <span class="truncate max-w-[38%] text-right">${teamWithFlag(away)}</span>
+                                   <span class="truncate max-w-[38%] text-right">${teamWithFlagHtml(away)}</span>
                                </div>
 
                                ${goalEvents.length ? `<div class="grid grid-cols-3 gap-2 text-xs mb-3 pb-2.5 border-b border-slate-700/70 items-start">
@@ -1459,7 +1477,7 @@
                 return `<div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
                     <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between gap-3 flex-wrap">
                         <div>
-                            <p class="font-bold text-white">${teamWithFlag(home)} <span class="text-slate-500 font-normal text-sm">vs</span> ${teamWithFlag(away)}</p>
+                            <p class="font-bold text-white">${teamWithFlagHtml(home)} <span class="text-slate-500 font-normal text-sm">vs</span> ${teamWithFlagHtml(away)}</p>
                             ${dateLine}
                         </div>
                         ${statusBadge}
@@ -1516,7 +1534,7 @@
                 predictCandidates.forEach(m => {
                     const { home, away } = parseTeams(m.match_label);
                     const when = formatHKT(m.match_date);
-                    const label = `${teamWithFlag(home)} vs ${teamWithFlag(away)}${when ? ` · ${when}` : ''}`;
+                    const label = `${teamWithFlagText(home)} vs ${teamWithFlagText(away)}${when ? ` · ${when}` : ''}`;
                     sel.innerHTML += `<option value="${m.match_label}" ${m.match_label === currentPredict ? 'selected' : ''}>${label}</option>`;
                 });
             }
@@ -1529,8 +1547,8 @@
         // Update team name labels when a match is selected
         document.getElementById('matchSelect').addEventListener('change', function () {
             const { home, away } = parseTeams(this.value || '');
-            document.getElementById('homeTeamLabel').textContent = this.value ? teamWithFlag(home) : 'Home Team';
-            document.getElementById('awayTeamLabel').textContent = this.value ? teamWithFlag(away) : 'Away Team';
+            document.getElementById('homeTeamLabel').innerHTML = this.value ? teamWithFlagHtml(home) : 'Home Team';
+            document.getElementById('awayTeamLabel').innerHTML = this.value ? teamWithFlagHtml(away) : 'Away Team';
         });
 
         document.getElementById('adminMatchSelect').addEventListener('change', function () {
