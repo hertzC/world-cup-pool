@@ -19,9 +19,22 @@
             0%,100% { box-shadow: 0 0 12px 3px rgba(251,191,36,.45), 0 0 28px rgba(251,191,36,.2); }
             50%     { box-shadow: 0 0 24px 8px rgba(251,191,36,.9),  0 0 50px rgba(251,191,36,.4); }
         }
+        @keyframes rankUpPulse {
+            0%   { transform: translateY(0) scale(1); }
+            35%  { transform: translateY(-8px) scale(1.03); }
+            100% { transform: translateY(0) scale(1); }
+        }
+        @keyframes rankDownShake {
+            0%,100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            50% { transform: translateX(4px); }
+            75% { transform: translateX(-2px); }
+        }
         .podium-entry { opacity: 0; animation: slideUp .55s ease-out forwards; }
         .crown-float  { animation: floatCrown 1.7s ease-in-out infinite; }
         .gold-glow    { animation: goldPulse  2.3s ease-in-out infinite; }
+        .rank-up-card { animation: rankUpPulse .7s ease-out; }
+        .rank-down-card { animation: rankDownShake .55s ease-out; }
     </style>
 </head>
 <body class="bg-slate-900 text-slate-100 font-sans pb-10">
@@ -197,6 +210,32 @@
                                     </button>
                                 </div>
                             </div>
+                            <div class="bg-slate-700/35 border border-slate-700 rounded-xl p-3 space-y-3">
+                                <p class="text-xs font-bold text-cyan-300 uppercase tracking-wider">📊 Finished Match Stats <span class="text-slate-500 normal-case">(optional)</span></p>
+                                <textarea id="goalLog" rows="3" placeholder="Scorers (one per line), e.g.\n12' Lionel Messi (ARG)\n67' Julian Alvarez (ARG)"
+                                    class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-xs text-white outline-none focus:border-cyan-500"></textarea>
+
+                                <div>
+                                    <label class="block text-[11px] text-slate-400 mb-1">Possession %</label>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <input type="number" id="possessionHome" min="0" max="100" placeholder="Home %"
+                                            class="bg-slate-700 border border-slate-600 rounded-xl p-2 text-sm text-white outline-none focus:border-cyan-500">
+                                        <input type="number" id="possessionAway" min="0" max="100" placeholder="Away %"
+                                            class="bg-slate-700 border border-slate-600 rounded-xl p-2 text-sm text-white outline-none focus:border-cyan-500">
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-2">
+                                    <input type="number" id="yellowHome" min="0" placeholder="Home yellow cards"
+                                        class="bg-slate-700 border border-slate-600 rounded-xl p-2 text-sm text-white outline-none focus:border-yellow-500">
+                                    <input type="number" id="yellowAway" min="0" placeholder="Away yellow cards"
+                                        class="bg-slate-700 border border-slate-600 rounded-xl p-2 text-sm text-white outline-none focus:border-yellow-500">
+                                    <input type="number" id="redHome" min="0" placeholder="Home red cards"
+                                        class="bg-slate-700 border border-slate-600 rounded-xl p-2 text-sm text-white outline-none focus:border-red-500">
+                                    <input type="number" id="redAway" min="0" placeholder="Away red cards"
+                                        class="bg-slate-700 border border-slate-600 rounded-xl p-2 text-sm text-white outline-none focus:border-red-500">
+                                </div>
+                            </div>
                             <div id="settleStatus" class="hidden text-xs rounded-xl p-3 leading-relaxed"></div>
                             <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3 rounded-xl uppercase tracking-wide transition">
                                 Settle Match &amp; Award Points
@@ -301,6 +340,7 @@
         let allMatchesCache     = [];
         let allPredictionsCache = [];
         let allPlayersCache     = [];
+        let previousRanks       = {};
         let currentFilter       = 'all';
         let isSettling          = false;
         let isAdminUnlocked     = false;
@@ -400,6 +440,53 @@
             renderMatchCards();
             populateHighlightDropdown();
             populatePlayerVideoSelect();
+        }
+
+        function getPlayerPowerTitles() {
+            const finished = allMatchesCache.filter(m => m.is_finished);
+            const stats = {};
+
+            allPlayersCache.forEach(p => {
+                stats[p.name] = { exact: 0, upset: 0, scored: 0, streak: getPlayerStreak(p.name) };
+            });
+
+            finished.forEach(m => {
+                const matchPreds = allPredictionsCache.filter(p => p.match_label === m.match_label);
+                const actualOut = Number(m.home_score) > Number(m.away_score) ? 'W' : Number(m.home_score) < Number(m.away_score) ? 'L' : 'D';
+
+                const outcomeCounts = { W: 0, D: 0, L: 0 };
+                matchPreds.forEach(p => {
+                    const out = Number(p.pred_home) > Number(p.pred_away) ? 'W' : Number(p.pred_home) < Number(p.pred_away) ? 'L' : 'D';
+                    outcomeCounts[out]++;
+                });
+                const consensus = Object.entries(outcomeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'D';
+
+                matchPreds.forEach(p => {
+                    const pts = calcPoints(p.pred_home, p.pred_away, m.home_score, m.away_score);
+                    if (pts > 0 && stats[p.player_name]) stats[p.player_name].scored++;
+                    if (pts === 5 && stats[p.player_name]) stats[p.player_name].exact++;
+
+                    const predOut = Number(p.pred_home) > Number(p.pred_away) ? 'W' : Number(p.pred_home) < Number(p.pred_away) ? 'L' : 'D';
+                    if (stats[p.player_name] && predOut !== consensus && predOut === actualOut) {
+                        stats[p.player_name].upset++;
+                    }
+                });
+            });
+
+            const titleMap = {};
+            function assignTopTitle(key, title, icon, minValue = 1) {
+                const sorted = Object.entries(stats).sort((a, b) => (b[1][key] || 0) - (a[1][key] || 0));
+                if (!sorted.length) return;
+                const [name, valObj] = sorted[0];
+                if ((valObj[key] || 0) < minValue) return;
+                titleMap[name] = `${icon} ${title}`;
+            }
+
+            assignTopTitle('exact', 'Goal Wizard', '🎯', 1);
+            assignTopTitle('upset', 'Chaos Prophet', '🌪️', 1);
+            assignTopTitle('streak', 'Ice-Cold Finisher', '❄️', 2);
+
+            return titleMap;
         }
 
         // ── Player avatars (photo if set, else emoji) ────────
@@ -560,6 +647,11 @@
                 container.innerHTML = `<p class="text-slate-500 text-sm py-4">No players found</p>`;
                 return;
             }
+
+            const titleMap = getPlayerPowerTitles();
+            const currentRanks = {};
+            allPlayersCache.forEach((p, i) => { currentRanks[p.name] = i + 1; });
+
             container.className = ''; // override grid; layout is self-contained
             const top3 = allPlayersCache.slice(0, 3);
             const rest  = allPlayersCache.slice(3);
@@ -570,6 +662,17 @@
                 const streakBadge = streak > 1
                     ? `<span class="text-[9px] font-bold text-orange-400 block mt-0.5">🔥${streak}</span>` : '';
                 const safeN = player.name.replace(/'/g, "\\'");
+                const prevRank = previousRanks[player.name] || rank;
+                const rankShift = prevRank - rank;
+                const moveClass = rankShift > 0 ? 'rank-up-card' : rankShift < 0 ? 'rank-down-card' : '';
+                const moveBadge = rankShift > 0
+                    ? `<span class="text-[10px] font-black text-emerald-300">▲${rankShift}</span>`
+                    : rankShift < 0
+                        ? `<span class="text-[10px] font-black text-rose-300">▼${Math.abs(rankShift)}</span>`
+                        : `<span class="text-[10px] font-black text-slate-500">•</span>`;
+                const titleLine = titleMap[player.name]
+                    ? `<p class="text-[9px] text-cyan-300 font-bold mt-0.5 truncate">${titleMap[player.name]}</p>`
+                    : '';
                 const cfg = {
                     1: { border:'border-amber-400', glow:'gold-glow', avatarSz:'w-14 h-14 text-3xl', scoreSz:'text-3xl', baseH:'h-20', baseBg:'bg-amber-500' },
                     2: { border:'border-slate-400', glow:'',          avatarSz:'w-12 h-12 text-2xl', scoreSz:'text-2xl', baseH:'h-12', baseBg:'bg-slate-500' },
@@ -584,7 +687,7 @@
                 return `
                 <div class="flex flex-col items-center podium-entry" style="animation-delay:${delay}s">
                     ${crown}
-                    <div class="${cfg.glow} bg-slate-700 border ${cfg.border} rounded-2xl p-2 sm:p-3 w-full text-center cursor-pointer hover:scale-105 transition-transform select-none"
+                    <div class="${cfg.glow} ${moveClass} bg-slate-700 border ${cfg.border} rounded-2xl p-2 sm:p-3 w-full text-center cursor-pointer hover:scale-105 transition-transform select-none"
                          onclick="openPlayerModal('${safeN}')">
                         <div class="flex justify-center mb-1 relative">
                             <div class="${avatarRing}" ${videoClick} title="${hasVideo ? 'Tap to watch intro 🎬' : ''}">
@@ -593,6 +696,8 @@
                             ${hasVideo ? `<span class="absolute -bottom-0.5 -right-0.5 text-[10px] leading-none select-none">🎬</span>` : ''}
                         </div>
                         <p class="text-[10px] sm:text-xs font-bold text-slate-200 uppercase truncate leading-tight">${player.name}</p>
+                        <div class="flex items-center justify-center gap-1 mt-0.5">${moveBadge}</div>
+                        ${titleLine}
                         <p class="${cfg.scoreSz} font-black text-amber-400 leading-none score-count" data-score="${player.total_score}">0</p>
                         <p class="text-[9px] text-slate-500">pts</p>
                         ${streakBadge}
@@ -609,19 +714,37 @@
                     const streak = getPlayerStreak(p.name);
                     const badge = streak > 1 ? `<span class="text-xs text-orange-400 ml-1">🔥${streak}</span>` : '';
                     const safeN = p.name.replace(/'/g, "\\'");
+                    const rank = i + 4;
+                    const prevRank = previousRanks[p.name] || rank;
+                    const rankShift = prevRank - rank;
+                    const moveClass = rankShift > 0 ? 'rank-up-card' : rankShift < 0 ? 'rank-down-card' : '';
+                    const moveBadge = rankShift > 0
+                        ? `<span class="text-[10px] font-black text-emerald-300">▲${rankShift}</span>`
+                        : rankShift < 0
+                            ? `<span class="text-[10px] font-black text-rose-300">▼${Math.abs(rankShift)}</span>`
+                            : `<span class="text-[10px] font-black text-slate-500">•</span>`;
+                    const titleLine = titleMap[p.name]
+                        ? `<span class="text-[10px] text-cyan-300 font-bold truncate">${titleMap[p.name]}</span>`
+                        : '';
                     const hasVideo = !!p.video_url;
                     const avatarRing = hasVideo ? 'ring-2 ring-pink-500 ring-offset-1 ring-offset-slate-700 rounded-full cursor-pointer shrink-0' : 'shrink-0';
                     const videoClick = hasVideo ? `onclick="openPlayerVideo('${safeN}', event)"` : '';
                     return `
-                    <div class="bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer hover:border-indigo-500 transition podium-entry"
+                    <div class="${moveClass} bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer hover:border-indigo-500 transition podium-entry"
                          style="animation-delay:${0.55 + i * 0.09}s"
                          onclick="openPlayerModal('${safeN}')">
-                        <span class="text-sm font-black text-slate-400 w-5 shrink-0">${i + 4}</span>
+                        <span class="text-sm font-black text-slate-400 w-5 shrink-0">${rank}</span>
                         <div class="relative ${avatarRing}" ${videoClick}>
                             ${playerAvatarHtml(p, 'w-9 h-9 text-xl')}
                             ${hasVideo ? `<span class="absolute -bottom-0.5 -right-0.5 text-[9px] leading-none">🎬</span>` : ''}
                         </div>
-                        <span class="flex-1 text-sm font-bold text-slate-300 truncate">${p.name}</span>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-sm font-bold text-slate-300 truncate">${p.name}</span>
+                                ${moveBadge}
+                            </div>
+                            ${titleLine}
+                        </div>
                         <span class="text-xl font-black text-amber-400 score-count" data-score="${p.total_score}">0</span>
                         <span class="text-xs text-slate-500 ml-0.5">pts${badge}</span>
                     </div>`;
@@ -638,6 +761,7 @@
 
             setTimeout(animateScores, 60);
             if (allPlayersCache[0]?.total_score > 0) launchConfetti();
+            previousRanks = currentRanks;
         }
 
         // ── Compute current winning streak for a player ───────
@@ -769,6 +893,37 @@
                     const marginNote = margin > 0 ? ` · ${margin}-goal margin` : '';
                     const badgeRow = badges.length ? `<div class="flex flex-wrap gap-1.5 mb-1.5">${badges.join('')}</div>` : '';
 
+                    const goalEvents = (m.goal_log || '').split('\n').map(x => x.trim()).filter(Boolean);
+                    const goalsBlock = goalEvents.length
+                        ? `<div class="mt-2 bg-slate-700/40 border border-slate-700 rounded-xl p-2.5">
+                               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">⚽ Goals</p>
+                               <div class="space-y-1">${goalEvents.map(g => `<p class=\"text-xs text-slate-300\">${g}</p>`).join('')}</div>
+                           </div>`
+                        : '';
+
+                    const hasPossession = m.possession_home !== null && m.possession_home !== undefined && m.possession_away !== null && m.possession_away !== undefined;
+                    const possessionBlock = hasPossession
+                        ? `<div class="mt-2 bg-slate-700/40 border border-slate-700 rounded-xl p-2.5">
+                               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">📈 Possession</p>
+                               <div class="flex justify-between text-xs text-slate-300 mb-1"><span>${home}: ${m.possession_home}%</span><span>${away}: ${m.possession_away}%</span></div>
+                               <div class="h-2 bg-slate-700 rounded-full overflow-hidden flex">
+                                   <span class="bg-cyan-500" style="width:${m.possession_home}%;"></span>
+                                   <span class="bg-indigo-500" style="width:${m.possession_away}%;"></span>
+                               </div>
+                           </div>`
+                        : '';
+
+                    const hasCards = [m.yellow_home, m.yellow_away, m.red_home, m.red_away].some(v => v !== null && v !== undefined);
+                    const cardsBlock = hasCards
+                        ? `<div class="mt-2 bg-slate-700/40 border border-slate-700 rounded-xl p-2.5">
+                               <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">🟨🟥 Cards</p>
+                               <div class="grid grid-cols-2 gap-2 text-xs">
+                                   <div class="text-slate-300">${home}: 🟨 ${m.yellow_home ?? 0} · 🟥 ${m.red_home ?? 0}</div>
+                                   <div class="text-slate-300">${away}: 🟨 ${m.yellow_away ?? 0} · 🟥 ${m.red_away ?? 0}</div>
+                               </div>
+                           </div>`
+                        : '';
+
                     const embedUrl = toYouTubeEmbed(m.highlight_url);
                     const videoBlock = embedUrl
                         ? `<div class="mt-2.5 rounded-xl overflow-hidden aspect-video">
@@ -784,6 +939,9 @@
                             <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">⚡ Highlights</p>
                             ${badgeRow}
                             <p class="text-xs text-slate-400">${outcome}${marginNote}</p>
+                            ${goalsBlock}
+                            ${possessionBlock}
+                            ${cardsBlock}
                             ${videoBlock}
                         </div>
                     </div>`;
@@ -924,6 +1082,28 @@
             if (isNaN(actH) || isNaN(actA)) return alert("Enter valid scores for both teams.");
 
             const highlightUrl = document.getElementById('highlightUrl').value.trim() || null;
+            const goalLog = document.getElementById('goalLog').value.trim() || null;
+            const possessionHomeVal = document.getElementById('possessionHome').value;
+            const possessionAwayVal = document.getElementById('possessionAway').value;
+            const yellowHomeVal = document.getElementById('yellowHome').value;
+            const yellowAwayVal = document.getElementById('yellowAway').value;
+            const redHomeVal = document.getElementById('redHome').value;
+            const redAwayVal = document.getElementById('redAway').value;
+
+            const possessionHome = possessionHomeVal === '' ? null : Number(possessionHomeVal);
+            const possessionAway = possessionAwayVal === '' ? null : Number(possessionAwayVal);
+            const yellowHome = yellowHomeVal === '' ? null : Number(yellowHomeVal);
+            const yellowAway = yellowAwayVal === '' ? null : Number(yellowAwayVal);
+            const redHome = redHomeVal === '' ? null : Number(redHomeVal);
+            const redAway = redAwayVal === '' ? null : Number(redAwayVal);
+
+            if ((possessionHome !== null || possessionAway !== null) && (possessionHome === null || possessionAway === null)) {
+                return alert('Enter both possession values (home and away), or leave both empty.');
+            }
+            if (possessionHome !== null && possessionAway !== null && (possessionHome + possessionAway !== 100)) {
+                return alert('Possession must add up to 100%.');
+            }
+
             isSettling = true;
             statusEl.className   = 'text-xs rounded-xl p-3 bg-slate-700 text-slate-300';
             statusEl.textContent = '⏳ Processing…';
@@ -942,6 +1122,13 @@
             // 1. Lock match as finished
             const settlePayload = { home_score: actH, away_score: actA, is_finished: true };
             if (highlightUrl) settlePayload.highlight_url = highlightUrl;
+            settlePayload.goal_log = goalLog;
+            settlePayload.possession_home = possessionHome;
+            settlePayload.possession_away = possessionAway;
+            settlePayload.yellow_home = yellowHome;
+            settlePayload.yellow_away = yellowAway;
+            settlePayload.red_home = redHome;
+            settlePayload.red_away = redAway;
             const { error: matchErr } = await db.from('match_results')
                 .update(settlePayload)
                 .eq('match_label', match);
@@ -987,6 +1174,13 @@
             document.getElementById('actualHome').value = '';
             document.getElementById('actualAway').value = '';
             document.getElementById('highlightUrl').value = '';
+            document.getElementById('goalLog').value = '';
+            document.getElementById('possessionHome').value = '';
+            document.getElementById('possessionAway').value = '';
+            document.getElementById('yellowHome').value = '';
+            document.getElementById('yellowAway').value = '';
+            document.getElementById('redHome').value = '';
+            document.getElementById('redAway').value = '';
 
             isSettling = false;
             await Promise.all([fetchAllData(), populateMatchDropdowns()]);
