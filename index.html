@@ -618,18 +618,39 @@
 
             ctx.fillStyle = '#cbd5e1';
             ctx.font = '600 26px Segoe UI, Arial';
-            ctx.fillText(`Leaderboard Recap - ${snapshot.dayLabel}`, 56, 112);
+            ctx.fillText('Leaderboard Recap', 56, 112);
+
+            // Highlighted date badge
+            const dayBadge = `Day ${snapIndex + 1} · ${snapshot.dayLabel}`;
+            ctx.font = 'bold 22px Segoe UI, Arial';
+            const badgeW = Math.ceil(ctx.measureText(dayBadge).width) + 30;
+            const badgeX = 56;
+            const badgeY = 126;
+            const badgeH = 38;
+            const badgeGrad = ctx.createLinearGradient(badgeX, badgeY, badgeX + badgeW, badgeY + badgeH);
+            badgeGrad.addColorStop(0, '#f43f5e');
+            badgeGrad.addColorStop(1, '#f59e0b');
+            ctx.fillStyle = badgeGrad;
+            ctx.beginPath();
+            if (ctx.roundRect) {
+                ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 10);
+                ctx.fill();
+            } else {
+                ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+            }
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(dayBadge, badgeX + 14, badgeY + 26);
 
             ctx.fillStyle = '#94a3b8';
             ctx.font = '600 18px Segoe UI, Arial';
-            ctx.fillText(`Day ${snapIndex + 1} / ${snapTotal}`, w - 190, 72);
+            ctx.fillText(`${snapTotal} days total`, w - 190, 72);
 
             const top = snapshot.standings.slice(0, 10);
             const prevMap = Object.fromEntries((previousSnapshot?.standings || []).map(x => [x.name, x.score]));
             const maxScore = Math.max(1, globalMaxScore || 1);
 
             const barX = 56;
-            const barY0 = 160;
+            const barY0 = 190;
             const rowH = 52;
             const barMaxW = w - 270;
             const colors = ['#f59e0b', '#22c55e', '#38bdf8', '#a78bfa', '#fb7185', '#14b8a6', '#f97316', '#84cc16', '#60a5fa', '#f43f5e'];
@@ -686,9 +707,9 @@
                 const globalMaxScore = Math.max(1, ...snapshots.flatMap(s => s.standings.map(p => p.score)));
 
                 const fps = 30;
-                const introSec = 0.5;
-                const snapSec = 1.0;
-                const outroSec = 0.7;
+                const introSec = 1.0;
+                const snapSec = 5.5;
+                const outroSec = 1.2;
 
                 const introFrames = Math.floor(introSec * fps);
                 const snapFrames = Math.floor(snapSec * fps);
