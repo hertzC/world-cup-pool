@@ -491,6 +491,11 @@
             return 1 - Math.pow(1 - t, 3);
         }
 
+        function clampMonotonic(value, fromValue, toValue) {
+            if (toValue >= fromValue) return Math.min(toValue, Math.max(fromValue, value));
+            return Math.max(toValue, Math.min(fromValue, value));
+        }
+
         function formatRecapDateLabel(ymd) {
             const m = ymd?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
             if (!m) return ymd || 'Unknown Date';
@@ -547,7 +552,7 @@
             return snapshots;
         }
 
-        function drawRecapFrame(ctx, canvas, snapshot, previousSnapshot, frameT, snapIndex, snapTotal) {
+        function drawRecapFrame(ctx, canvas, snapshot, previousSnapshot, frameT, snapIndex, snapTotal, globalMaxScore) {
             const w = canvas.width;
             const h = canvas.height;
 
@@ -571,7 +576,7 @@
 
             const top = snapshot.standings.slice(0, 10);
             const prevMap = Object.fromEntries((previousSnapshot?.standings || []).map(x => [x.name, x.score]));
-            const maxScore = Math.max(1, ...top.map(p => p.score));
+            const maxScore = Math.max(1, globalMaxScore || 1);
 
             const barX = 56;
             const barY0 = 160;
@@ -582,7 +587,8 @@
             top.forEach((p, i) => {
                 const prev = prevMap[p.name] ?? p.score;
                 const t = easeOutCubic(Math.min(1, frameT * 1.4));
-                const smoothScore = prev + (p.score - prev) * t;
+                const rawScore = prev + (p.score - prev) * t;
+                const smoothScore = clampMonotonic(rawScore, prev, p.score);
                 const y = barY0 + i * rowH;
                 const width = Math.max(4, (smoothScore / maxScore) * barMaxW);
 
@@ -627,6 +633,7 @@
                 canvas.width = 1280;
                 canvas.height = 720;
                 const ctx = canvas.getContext('2d');
+                const globalMaxScore = Math.max(1, ...snapshots.flatMap(s => s.standings.map(p => p.score)));
 
                 const fps = 30;
                 const introSec = 0.5;
@@ -668,7 +675,7 @@
 
                     const current = snapshots[idx];
                     const prev = idx > 0 ? snapshots[idx - 1] : null;
-                    drawRecapFrame(ctx, canvas, current, prev, t, idx, snapshots.length);
+                    drawRecapFrame(ctx, canvas, current, prev, t, idx, snapshots.length, globalMaxScore);
 
                     await new Promise(r => setTimeout(r, 1000 / fps));
                 }
