@@ -89,6 +89,18 @@
                     <div id="leaderboard" class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                         <div class="animate-pulse bg-slate-700 h-20 rounded-xl col-span-4"></div>
                     </div>
+                    <div class="mt-3 bg-slate-900/45 border border-slate-700 rounded-xl p-3">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <label for="recapAudioInput" class="text-[11px] font-bold px-3 py-1.5 rounded-full border border-fuchsia-600/60 text-fuchsia-300 bg-fuchsia-900/20 hover:bg-fuchsia-900/35 transition cursor-pointer">
+                                🎵 Add Licensed Song
+                            </label>
+                            <input id="recapAudioInput" type="file" accept="audio/*" class="hidden" onchange="handleRecapAudioUpload(event)">
+                            <button type="button" onclick="clearRecapAudio()" class="text-[11px] font-bold px-3 py-1.5 rounded-full border border-slate-600 text-slate-300 bg-slate-800 hover:bg-slate-700 transition">
+                                Remove Song
+                            </button>
+                            <p id="recapAudioStatus" class="text-[11px] text-slate-400">No song selected.</p>
+                        </div>
+                    </div>
                     <div class="mt-4 border-t border-slate-700/70 pt-3">
                         <div class="flex items-center justify-between gap-2 mb-2">
                             <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Daily Recap</p>
@@ -387,6 +399,8 @@
         let recapGenerating     = false;
         let recapVideoUrl       = null;
         let recapAutoTimerId    = null;
+        let recapAudioBuffer    = null;
+        let recapAudioName      = '';
 
         const STANDINGS_NOTES = [261.63, 329.63, 392.0, 523.25, 392.0, 329.63];
 
@@ -476,6 +490,42 @@
         function updateRecapVideoStatus(text) {
             const status = document.getElementById('recapVideoStatus');
             if (status) status.textContent = text;
+        }
+
+        function updateRecapAudioStatus() {
+            const status = document.getElementById('recapAudioStatus');
+            if (!status) return;
+            status.textContent = recapAudioBuffer
+                ? `Song: ${recapAudioName}`
+                : 'No song selected.';
+        }
+
+        async function handleRecapAudioUpload(event) {
+            const file = event?.target?.files?.[0];
+            if (!file) return;
+            try {
+                const ctx = ensureAudioContext();
+                if (!ctx) {
+                    alert('Audio engine is not available in this browser.');
+                    return;
+                }
+                const arr = await file.arrayBuffer();
+                const decoded = await ctx.decodeAudioData(arr.slice(0));
+                recapAudioBuffer = decoded;
+                recapAudioName = file.name;
+                updateRecapAudioStatus();
+            } catch (err) {
+                console.error('Audio upload failed:', err);
+                alert('Could not load this audio file. Try MP3 or WAV.');
+            }
+        }
+
+        function clearRecapAudio() {
+            recapAudioBuffer = null;
+            recapAudioName = '';
+            const input = document.getElementById('recapAudioInput');
+            if (input) input.value = '';
+            updateRecapAudioStatus();
         }
 
         function loadRecapVideoIntoPlayer(url) {
@@ -644,11 +694,35 @@
                 const snapFrames = Math.floor(snapSec * fps);
                 const outroFrames = Math.floor(outroSec * fps);
                 const totalFrames = introFrames + snapshots.length * snapFrames + outroFrames;
+                const totalDurationSec = totalFrames / fps;
 
-                const stream = canvas.captureStream(fps);
+                const canvasStream = canvas.captureStream(fps);
+                let exportStream = canvasStream;
+                let recapAudioSource = null;
+                let recapAudioDest = null;
+
+                if (recapAudioBuffer) {
+                    const ctxAudio = ensureAudioContext();
+                    if (ctxAudio) {
+                        recapAudioDest = ctxAudio.createMediaStreamDestination();
+                        const gain = ctxAudio.createGain();
+                        gain.gain.value = 0.28;
+                        recapAudioSource = ctxAudio.createBufferSource();
+                        recapAudioSource.buffer = recapAudioBuffer;
+                        recapAudioSource.loop = true;
+                        recapAudioSource.connect(gain).connect(recapAudioDest);
+                        recapAudioSource.start();
+                        recapAudioSource.stop(ctxAudio.currentTime + totalDurationSec + 0.2);
+                        exportStream = new MediaStream([
+                            ...canvasStream.getVideoTracks(),
+                            ...recapAudioDest.stream.getAudioTracks()
+                        ]);
+                    }
+                }
+
                 const mimeCandidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
                 const mimeType = mimeCandidates.find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
-                const recorder = new MediaRecorder(stream, { mimeType });
+                const recorder = new MediaRecorder(exportStream, { mimeType });
                 const chunks = [];
                 recorder.ondataavailable = e => { if (e.data?.size) chunks.push(e.data); };
 
@@ -696,6 +770,10 @@
                         player.currentTime = 0;
                         player.play().catch(() => {});
                     }
+                }
+
+                if (recapAudioSource) {
+                    try { recapAudioSource.disconnect(); } catch {}
                 }
             } catch (err) {
                 console.error('Recap generation error:', err);
@@ -1294,6 +1372,7 @@
             await Promise.all([fetchAllData(), populateMatchDropdowns()]);
             updateStandingsMusicButton();
             updateRecapButtonState();
+            updateRecapAudioStatus();
             updateRecapVideoStatus('No video generated yet.');
             startAutoSyncLoop();
             autoSyncFinishedMatches({ manual: false });
