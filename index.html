@@ -75,10 +75,16 @@
                 <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 mb-4">
                     <div class="flex items-center justify-between gap-3 mb-4">
                         <h2 class="text-lg font-bold text-amber-400">🏆 Tournament Standings</h2>
-                        <button type="button" onclick="toggleStandingsMusic()" id="standingsMusicBtn"
-                            class="text-[11px] font-bold px-3 py-1.5 rounded-full border border-emerald-600/60 text-emerald-300 bg-emerald-900/20 hover:bg-emerald-900/35 transition">
-                            🔈 Music Off
-                        </button>
+                        <div class="flex items-center gap-2">
+                            <button type="button" onclick="generateLeaderboardRecapVideo()" id="recapVideoBtn"
+                                class="text-[11px] font-bold px-3 py-1.5 rounded-full border border-cyan-600/60 text-cyan-300 bg-cyan-900/20 hover:bg-cyan-900/35 transition">
+                                🎬 Recap Video
+                            </button>
+                            <button type="button" onclick="toggleStandingsMusic()" id="standingsMusicBtn"
+                                class="text-[11px] font-bold px-3 py-1.5 rounded-full border border-emerald-600/60 text-emerald-300 bg-emerald-900/20 hover:bg-emerald-900/35 transition">
+                                🔈 Music Off
+                            </button>
+                        </div>
                     </div>
                     <div id="leaderboard" class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                         <div class="animate-pulse bg-slate-700 h-20 rounded-xl col-span-4"></div>
@@ -371,6 +377,7 @@
         let standingsMusicOn    = false;
         let standingsMusicTimer = null;
         let musicStep           = 0;
+        let recapGenerating     = false;
 
         const STANDINGS_NOTES = [261.63, 329.63, 392.0, 523.25, 392.0, 329.63];
 
@@ -437,6 +444,221 @@
             const standingsVisible = document.getElementById('content-standings')?.style.display !== 'none';
             if (standingsMusicOn && standingsVisible) startStandingsMusic();
             else stopStandingsMusic();
+        }
+
+        function updateRecapButtonState() {
+            const btn = document.getElementById('recapVideoBtn');
+            if (!btn) return;
+            btn.disabled = recapGenerating;
+            btn.textContent = recapGenerating ? '⏳ Rendering...' : '🎬 Recap Video';
+            btn.className = recapGenerating
+                ? 'text-[11px] font-bold px-3 py-1.5 rounded-full border border-cyan-700 text-cyan-400 bg-slate-700 cursor-not-allowed transition'
+                : 'text-[11px] font-bold px-3 py-1.5 rounded-full border border-cyan-600/60 text-cyan-300 bg-cyan-900/20 hover:bg-cyan-900/35 transition';
+        }
+
+        function easeOutCubic(t) {
+            return 1 - Math.pow(1 - t, 3);
+        }
+
+        function formatRecapDateLabel(ymd) {
+            const m = ymd?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (!m) return ymd || 'Unknown Date';
+            const d = new Date(`${ymd}T00:00:00+08:00`);
+            if (isNaN(d)) return ymd;
+            return d.toLocaleDateString('en-HK', {
+                timeZone: 'Asia/Hong_Kong',
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+
+        function buildDailyLeaderboardSnapshots() {
+            const settled = allMatchesCache
+                .filter(m => m.is_finished)
+                .sort((a, b) => getMatchSortTimestamp(a) - getMatchSortTimestamp(b));
+
+            if (!settled.length) return [];
+
+            const playerSet = new Set(allPlayersCache.map(p => p.name));
+            allPredictionsCache.forEach(p => playerSet.add(p.player_name));
+            const players = Array.from(playerSet).filter(Boolean);
+            const scoreMap = Object.fromEntries(players.map(name => [name, 0]));
+
+            const groups = [];
+            settled.forEach(match => {
+                const key = getHktYmd(match.match_date || match.created_at || null) || 'Unknown';
+                const last = groups[groups.length - 1];
+                if (!last || last.key !== key) groups.push({ key, matches: [match] });
+                else last.matches.push(match);
+            });
+
+            const snapshots = [];
+            groups.forEach(group => {
+                group.matches.forEach(match => {
+                    const preds = allPredictionsCache.filter(p => p.match_label === match.match_label);
+                    preds.forEach(pred => {
+                        const pts = calcPoints(pred.pred_home, pred.pred_away, match.home_score, match.away_score);
+                        scoreMap[pred.player_name] = (scoreMap[pred.player_name] || 0) + pts;
+                    });
+                });
+
+                const standings = Object.entries(scoreMap)
+                    .map(([name, score]) => ({ name, score }))
+                    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+
+                snapshots.push({
+                    dayKey: group.key,
+                    dayLabel: formatRecapDateLabel(group.key),
+                    standings
+                });
+            });
+
+            return snapshots;
+        }
+
+        function drawRecapFrame(ctx, canvas, snapshot, previousSnapshot, frameT, snapIndex, snapTotal) {
+            const w = canvas.width;
+            const h = canvas.height;
+
+            const grad = ctx.createLinearGradient(0, 0, w, h);
+            grad.addColorStop(0, '#0b1220');
+            grad.addColorStop(1, '#1e293b');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, w, h);
+
+            ctx.fillStyle = '#f59e0b';
+            ctx.font = 'bold 44px Segoe UI, Arial';
+            ctx.fillText('World Cup Family Pool', 56, 72);
+
+            ctx.fillStyle = '#cbd5e1';
+            ctx.font = '600 26px Segoe UI, Arial';
+            ctx.fillText(`Leaderboard Recap - ${snapshot.dayLabel}`, 56, 112);
+
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '600 18px Segoe UI, Arial';
+            ctx.fillText(`Day ${snapIndex + 1} / ${snapTotal}`, w - 190, 72);
+
+            const top = snapshot.standings.slice(0, 10);
+            const prevMap = Object.fromEntries((previousSnapshot?.standings || []).map(x => [x.name, x.score]));
+            const maxScore = Math.max(1, ...top.map(p => p.score));
+
+            const barX = 56;
+            const barY0 = 160;
+            const rowH = 52;
+            const barMaxW = w - 270;
+            const colors = ['#f59e0b', '#22c55e', '#38bdf8', '#a78bfa', '#fb7185', '#14b8a6', '#f97316', '#84cc16', '#60a5fa', '#f43f5e'];
+
+            top.forEach((p, i) => {
+                const prev = prevMap[p.name] ?? p.score;
+                const t = easeOutCubic(Math.min(1, frameT * 1.4));
+                const smoothScore = prev + (p.score - prev) * t;
+                const y = barY0 + i * rowH;
+                const width = Math.max(4, (smoothScore / maxScore) * barMaxW);
+
+                ctx.fillStyle = '#334155';
+                ctx.fillRect(barX, y, barMaxW, 36);
+
+                ctx.fillStyle = colors[i % colors.length];
+                ctx.fillRect(barX, y, width, 36);
+
+                ctx.fillStyle = '#f8fafc';
+                ctx.font = 'bold 20px Segoe UI, Arial';
+                ctx.fillText(`${i + 1}. ${p.name}`, barX + 10, y + 24);
+
+                ctx.textAlign = 'right';
+                ctx.fillStyle = '#f8fafc';
+                ctx.fillText(`${Math.round(smoothScore)} pts`, w - 70, y + 24);
+                ctx.textAlign = 'left';
+            });
+        }
+
+        async function generateLeaderboardRecapVideo() {
+            if (recapGenerating) return;
+
+            const snapshots = buildDailyLeaderboardSnapshots();
+            if (snapshots.length < 1) {
+                alert('No finished matches yet, so recap video cannot be generated.');
+                return;
+            }
+
+            if (typeof MediaRecorder === 'undefined') {
+                alert('Your browser does not support in-browser video export. Try Chrome or Edge.');
+                return;
+            }
+
+            recapGenerating = true;
+            updateRecapButtonState();
+
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 1280;
+                canvas.height = 720;
+                const ctx = canvas.getContext('2d');
+
+                const fps = 30;
+                const introSec = 0.5;
+                const snapSec = 1.0;
+                const outroSec = 0.7;
+
+                const introFrames = Math.floor(introSec * fps);
+                const snapFrames = Math.floor(snapSec * fps);
+                const outroFrames = Math.floor(outroSec * fps);
+                const totalFrames = introFrames + snapshots.length * snapFrames + outroFrames;
+
+                const stream = canvas.captureStream(fps);
+                const mimeCandidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+                const mimeType = mimeCandidates.find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+                const recorder = new MediaRecorder(stream, { mimeType });
+                const chunks = [];
+                recorder.ondataavailable = e => { if (e.data?.size) chunks.push(e.data); };
+
+                const finishedPromise = new Promise(resolve => {
+                    recorder.onstop = resolve;
+                });
+
+                recorder.start();
+
+                for (let f = 0; f < totalFrames; f++) {
+                    let idx;
+                    let t;
+                    if (f < introFrames) {
+                        idx = 0;
+                        t = 0;
+                    } else if (f >= introFrames + snapshots.length * snapFrames) {
+                        idx = snapshots.length - 1;
+                        t = 1;
+                    } else {
+                        const local = f - introFrames;
+                        idx = Math.floor(local / snapFrames);
+                        t = (local % snapFrames) / Math.max(1, snapFrames - 1);
+                    }
+
+                    const current = snapshots[idx];
+                    const prev = idx > 0 ? snapshots[idx - 1] : null;
+                    drawRecapFrame(ctx, canvas, current, prev, t, idx, snapshots.length);
+
+                    await new Promise(r => setTimeout(r, 1000 / fps));
+                }
+
+                recorder.stop();
+                await finishedPromise;
+
+                const blob = new Blob(chunks, { type: mimeType });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `leaderboard-recap-${new Date().toISOString().slice(0, 10)}.webm`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                console.error('Recap generation error:', err);
+                alert('Could not generate recap video: ' + (err?.message || err));
+            } finally {
+                recapGenerating = false;
+                updateRecapButtonState();
+            }
         }
 
         // ── Tab switching ─────────────────────────────────────
@@ -1010,6 +1232,7 @@
             updateAdminAccessUI();
             await Promise.all([fetchAllData(), populateMatchDropdowns()]);
             updateStandingsMusicButton();
+            updateRecapButtonState();
             startAutoSyncLoop();
             autoSyncFinishedMatches({ manual: false });
         }
