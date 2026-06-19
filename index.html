@@ -73,7 +73,13 @@
             <!-- STANDINGS ──────────────────────────────────── -->
             <div id="content-standings">
                 <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 mb-4">
-                    <h2 class="text-lg font-bold text-amber-400 mb-4">🏆 Tournament Standings</h2>
+                    <div class="flex items-center justify-between gap-3 mb-4">
+                        <h2 class="text-lg font-bold text-amber-400">🏆 Tournament Standings</h2>
+                        <button type="button" onclick="toggleStandingsMusic()" id="standingsMusicBtn"
+                            class="text-[11px] font-bold px-3 py-1.5 rounded-full border border-emerald-600/60 text-emerald-300 bg-emerald-900/20 hover:bg-emerald-900/35 transition">
+                            🔈 Music Off
+                        </button>
+                    </div>
                     <div id="leaderboard" class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                         <div class="animate-pulse bg-slate-700 h-20 rounded-xl col-span-4"></div>
                     </div>
@@ -361,6 +367,77 @@
         let isAdminUnlocked     = false;
         let autoSyncInProgress  = false;
         let autoSyncTimerId     = null;
+        let audioCtx            = null;
+        let standingsMusicOn    = false;
+        let standingsMusicTimer = null;
+        let musicStep           = 0;
+
+        const STANDINGS_NOTES = [261.63, 329.63, 392.0, 523.25, 392.0, 329.63];
+
+        function ensureAudioContext() {
+            if (!audioCtx) {
+                const Ctx = window.AudioContext || window.webkitAudioContext;
+                if (!Ctx) return null;
+                audioCtx = new Ctx();
+            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            return audioCtx;
+        }
+
+        function playTone(freq, duration = 0.16, type = 'sine', volume = 0.04) {
+            const ctx = ensureAudioContext();
+            if (!ctx) return;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = type;
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(volume, ctx.currentTime + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+            osc.connect(gain).connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + duration + 0.02);
+        }
+
+        function playMemberClickSound() {
+            playTone(660, 0.09, 'triangle', 0.035);
+            setTimeout(() => playTone(880, 0.11, 'triangle', 0.03), 55);
+        }
+
+        function updateStandingsMusicButton() {
+            const btn = document.getElementById('standingsMusicBtn');
+            if (!btn) return;
+            btn.textContent = standingsMusicOn ? '🔊 Music On' : '🔈 Music Off';
+            btn.className = standingsMusicOn
+                ? 'text-[11px] font-bold px-3 py-1.5 rounded-full border border-emerald-500 text-emerald-100 bg-emerald-700/50 hover:bg-emerald-700/70 transition'
+                : 'text-[11px] font-bold px-3 py-1.5 rounded-full border border-emerald-600/60 text-emerald-300 bg-emerald-900/20 hover:bg-emerald-900/35 transition';
+        }
+
+        function stopStandingsMusic() {
+            if (standingsMusicTimer) {
+                clearInterval(standingsMusicTimer);
+                standingsMusicTimer = null;
+            }
+        }
+
+        function startStandingsMusic() {
+            if (!standingsMusicOn || standingsMusicTimer) return;
+            ensureAudioContext();
+            standingsMusicTimer = setInterval(() => {
+                const freq = STANDINGS_NOTES[musicStep % STANDINGS_NOTES.length];
+                playTone(freq, 0.22, 'sine', 0.022);
+                musicStep++;
+            }, 320);
+        }
+
+        function toggleStandingsMusic() {
+            standingsMusicOn = !standingsMusicOn;
+            ensureAudioContext();
+            updateStandingsMusicButton();
+            const standingsVisible = document.getElementById('content-standings')?.style.display !== 'none';
+            if (standingsMusicOn && standingsVisible) startStandingsMusic();
+            else stopStandingsMusic();
+        }
 
         // ── Tab switching ─────────────────────────────────────
         function switchTab(tab) {
@@ -374,6 +451,9 @@
             document.getElementById('tab-' + tab).classList.remove('border-transparent', 'text-slate-400');
             document.getElementById('tab-' + tab).classList.add('border-indigo-500', 'text-indigo-400');
             document.getElementById('content-' + tab).style.display = 'block';
+
+            if (tab === 'standings' && standingsMusicOn) startStandingsMusic();
+            else stopStandingsMusic();
         }
 
         // ── Filter pills ──────────────────────────────────────
@@ -929,6 +1009,7 @@
         async function initApp() {
             updateAdminAccessUI();
             await Promise.all([fetchAllData(), populateMatchDropdowns()]);
+            updateStandingsMusicButton();
             startAutoSyncLoop();
             autoSyncFinishedMatches({ manual: false });
         }
@@ -1968,6 +2049,7 @@
 
         // ── Player Profile Modal ──────────────────────────────
         function openPlayerModal(playerName) {
+            playMemberClickSound();
             const settled = allMatchesCache.filter(m => m.is_finished);
             const player  = allPlayersCache.find(p => p.name === playerName);
             if (!player) return;
