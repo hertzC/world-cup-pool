@@ -89,6 +89,13 @@
                     <div id="leaderboard" class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                         <div class="animate-pulse bg-slate-700 h-20 rounded-xl col-span-4"></div>
                     </div>
+                    <div class="mt-4 border-t border-slate-700/70 pt-3">
+                        <div class="flex items-center justify-between gap-2 mb-2">
+                            <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Daily Recap</p>
+                            <p id="recapVideoStatus" class="text-[11px] text-slate-400">No video generated yet.</p>
+                        </div>
+                        <video id="recapVideoPlayer" controls playsinline class="w-full rounded-xl border border-slate-700 bg-black hidden"></video>
+                    </div>
                 </div>
                 <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
                     <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">📋 How Points Work</h3>
@@ -378,6 +385,8 @@
         let standingsMusicTimer = null;
         let musicStep           = 0;
         let recapGenerating     = false;
+        let recapVideoUrl       = null;
+        let recapAutoTimerId    = null;
 
         const STANDINGS_NOTES = [261.63, 329.63, 392.0, 523.25, 392.0, 329.63];
 
@@ -450,10 +459,32 @@
             const btn = document.getElementById('recapVideoBtn');
             if (!btn) return;
             btn.disabled = recapGenerating;
-            btn.textContent = recapGenerating ? '⏳ Rendering...' : '🎬 Recap Video';
+            btn.textContent = recapGenerating ? '⏳ Rendering...' : '🎬 Refresh Recap';
             btn.className = recapGenerating
                 ? 'text-[11px] font-bold px-3 py-1.5 rounded-full border border-cyan-700 text-cyan-400 bg-slate-700 cursor-not-allowed transition'
                 : 'text-[11px] font-bold px-3 py-1.5 rounded-full border border-cyan-600/60 text-cyan-300 bg-cyan-900/20 hover:bg-cyan-900/35 transition';
+        }
+
+        function getCurrentHktDateKey() {
+            const nowHKT = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
+            const y = nowHKT.getFullYear();
+            const m = String(nowHKT.getMonth() + 1).padStart(2, '0');
+            const d = String(nowHKT.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function updateRecapVideoStatus(text) {
+            const status = document.getElementById('recapVideoStatus');
+            if (status) status.textContent = text;
+        }
+
+        function loadRecapVideoIntoPlayer(url) {
+            const player = document.getElementById('recapVideoPlayer');
+            if (!player) return;
+            if (recapVideoUrl && recapVideoUrl !== url) URL.revokeObjectURL(recapVideoUrl);
+            recapVideoUrl = url;
+            player.src = url;
+            player.classList.remove('hidden');
         }
 
         function easeOutCubic(t) {
@@ -572,22 +603,24 @@
             });
         }
 
-        async function generateLeaderboardRecapVideo() {
+        async function generateLeaderboardRecapVideo(options = {}) {
+            const { auto = false } = options;
             if (recapGenerating) return;
 
             const snapshots = buildDailyLeaderboardSnapshots();
             if (snapshots.length < 1) {
-                alert('No finished matches yet, so recap video cannot be generated.');
+                if (!auto) alert('No finished matches yet, so recap video cannot be generated.');
                 return;
             }
 
             if (typeof MediaRecorder === 'undefined') {
-                alert('Your browser does not support in-browser video export. Try Chrome or Edge.');
+                if (!auto) alert('Your browser does not support in-browser video export. Try Chrome or Edge.');
                 return;
             }
 
             recapGenerating = true;
             updateRecapButtonState();
+            updateRecapVideoStatus(auto ? 'Auto-generating today\'s recap...' : 'Generating recap...');
 
             try {
                 const canvas = document.createElement('canvas');
@@ -645,20 +678,41 @@
 
                 const blob = new Blob(chunks, { type: mimeType });
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `leaderboard-recap-${new Date().toISOString().slice(0, 10)}.webm`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                URL.revokeObjectURL(url);
+                loadRecapVideoIntoPlayer(url);
+                const todayKey = getCurrentHktDateKey();
+                localStorage.setItem('dailyRecapGeneratedFor', todayKey);
+                updateRecapVideoStatus(`Ready: ${snapshots[snapshots.length - 1]?.dayLabel || todayKey}`);
+
+                if (!auto) {
+                    const player = document.getElementById('recapVideoPlayer');
+                    if (player) {
+                        player.currentTime = 0;
+                        player.play().catch(() => {});
+                    }
+                }
             } catch (err) {
                 console.error('Recap generation error:', err);
-                alert('Could not generate recap video: ' + (err?.message || err));
+                updateRecapVideoStatus('Recap generation failed.');
+                if (!auto) alert('Could not generate recap video: ' + (err?.message || err));
             } finally {
                 recapGenerating = false;
                 updateRecapButtonState();
             }
+        }
+
+        function maybeAutoGenerateDailyRecap() {
+            if (recapGenerating) return;
+            const todayKey = getCurrentHktDateKey();
+            const lastGeneratedFor = localStorage.getItem('dailyRecapGeneratedFor');
+            if (lastGeneratedFor === todayKey) return;
+            generateLeaderboardRecapVideo({ auto: true });
+        }
+
+        function startDailyRecapAutoLoop() {
+            if (recapAutoTimerId) clearInterval(recapAutoTimerId);
+            recapAutoTimerId = setInterval(() => {
+                maybeAutoGenerateDailyRecap();
+            }, 5 * 60 * 1000);
         }
 
         // ── Tab switching ─────────────────────────────────────
@@ -1233,8 +1287,11 @@
             await Promise.all([fetchAllData(), populateMatchDropdowns()]);
             updateStandingsMusicButton();
             updateRecapButtonState();
+            updateRecapVideoStatus('No video generated yet.');
             startAutoSyncLoop();
             autoSyncFinishedMatches({ manual: false });
+            maybeAutoGenerateDailyRecap();
+            startDailyRecapAutoLoop();
         }
 
         // ── Fetch all data → update caches → re-render ────────
