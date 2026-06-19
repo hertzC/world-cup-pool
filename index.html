@@ -316,13 +316,20 @@
 
                         <div class="pt-5 mt-5 border-t border-slate-700/60 space-y-3">
                             <p class="text-xs font-bold text-pink-400 uppercase tracking-wider">🎬 Player Intro Video</p>
-                            <p class="text-xs text-slate-400">Tap the avatar on the leaderboard to play. Paste a direct video URL (MP4/MOV from Supabase storage) or a YouTube link.</p>
+                            <p class="text-xs text-slate-400">Tap the avatar on the leaderboard to play. Upload a short clip, or paste a direct video URL / YouTube link.</p>
                             <form id="playerVideoForm" class="space-y-3">
                                 <select id="playerVideoSelect" class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm text-white outline-none">
                                     <option value="">Choose player…</option>
                                 </select>
                                 <input type="url" id="playerVideoUrl" placeholder="Paste video URL or YouTube link…"
                                     class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm text-white outline-none focus:border-pink-500">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <label for="playerVideoFile" class="text-xs font-bold px-3 py-2 rounded-xl border border-pink-700/60 text-pink-300 bg-pink-900/20 hover:bg-pink-900/35 transition cursor-pointer">
+                                        📤 Upload Short Video
+                                    </label>
+                                    <input id="playerVideoFile" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-m4v" class="hidden" onchange="uploadPlayerVideoFile(event)">
+                                    <span id="playerVideoFileName" class="text-[11px] text-slate-500 truncate">No file selected</span>
+                                </div>
                                 <div id="playerVideoStatus" class="hidden text-xs rounded-xl p-3 leading-relaxed"></div>
                                 <button type="submit" class="w-full bg-pink-600 hover:bg-pink-700 text-white font-black py-3 rounded-xl uppercase tracking-wide transition">
                                     Save Intro Video 🎬
@@ -377,6 +384,7 @@
         const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxva3NpeXF4ZXN1dXVoeGF4cWRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyNTA5NzgsImV4cCI6MjA5NjgyNjk3OH0.bo7pgG6l3cF4A4zfhinqZ0Ni18xiYj3lf8M7ZMY4VwM";
         const ADMIN_PASSWORD = "220284";
         const ESPN_WORLD_CUP_SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
+        const PLAYER_VIDEO_BUCKET = "player-videos";
         const AUTO_SYNC_INTERVAL_MS = 10 * 60 * 1000;
         const END_OF_MATCH_BUFFER_MS = 140 * 60 * 1000;
         const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -1559,6 +1567,93 @@
             }
         }
 
+        function sanitizeStorageName(name) {
+            return (name || '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '')
+                .slice(0, 60);
+        }
+
+        async function uploadPlayerVideoFile(event) {
+            if (!ensureAdminUnlocked()) return;
+
+            const file = event?.target?.files?.[0];
+            const fileNameEl = document.getElementById('playerVideoFileName');
+            if (fileNameEl) fileNameEl.textContent = file ? file.name : 'No file selected';
+            if (!file) return;
+
+            const name = document.getElementById('playerVideoSelect')?.value;
+            const statusEl = document.getElementById('playerVideoStatus');
+            if (!name) {
+                alert('Choose a player first, then upload the video.');
+                event.target.value = '';
+                if (fileNameEl) fileNameEl.textContent = 'No file selected';
+                return;
+            }
+
+            const maxBytes = 30 * 1024 * 1024; // 30MB short video limit
+            if (file.size > maxBytes) {
+                alert('Please upload a short video under 30MB.');
+                event.target.value = '';
+                if (fileNameEl) fileNameEl.textContent = 'No file selected';
+                return;
+            }
+
+            statusEl.className = 'text-xs rounded-xl p-3 bg-slate-700 text-slate-300';
+            statusEl.textContent = '⏳ Uploading video…';
+            statusEl.classList.remove('hidden');
+
+            try {
+                const ext = (file.name.split('.').pop() || 'mp4').toLowerCase();
+                const safeName = sanitizeStorageName(name) || 'player';
+                const path = `${safeName}/${Date.now()}.${ext}`;
+
+                const { error: uploadErr } = await db.storage
+                    .from(PLAYER_VIDEO_BUCKET)
+                    .upload(path, file, {
+                        upsert: true,
+                        contentType: file.type || 'video/mp4'
+                    });
+
+                if (uploadErr) throw uploadErr;
+
+                const { data: publicData } = db.storage
+                    .from(PLAYER_VIDEO_BUCKET)
+                    .getPublicUrl(path);
+
+                const publicUrl = publicData?.publicUrl;
+                if (!publicUrl) throw new Error('Could not get video URL after upload.');
+
+                const { error: saveErr } = await db.from('family_members')
+                    .update({ video_url: publicUrl })
+                    .eq('name', name);
+
+                if (saveErr) throw saveErr;
+
+                const urlInput = document.getElementById('playerVideoUrl');
+                if (urlInput) urlInput.value = publicUrl;
+
+                statusEl.className = 'text-xs rounded-xl p-3 bg-emerald-900/70 text-emerald-300';
+                statusEl.textContent = '✅ Uploaded and linked to player profile!';
+
+                await fetchAllData();
+                populatePlayerVideoSelect();
+            } catch (err) {
+                console.error('Player video upload failed:', err);
+                const msg = String(err?.message || err || 'Upload failed');
+                statusEl.className = 'text-xs rounded-xl p-3 bg-red-900 text-red-300';
+                if (/bucket/i.test(msg) && /not found|does not exist/i.test(msg)) {
+                    statusEl.textContent = `❌ Storage bucket '${PLAYER_VIDEO_BUCKET}' not found. Create it in Supabase Storage first.`;
+                } else {
+                    statusEl.textContent = '❌ ' + msg;
+                }
+            } finally {
+                event.target.value = '';
+                if (fileNameEl) fileNameEl.textContent = 'No file selected';
+            }
+        }
+
 // ── Confetti ──────────────────────────────────────────
         let confettiShown = false;
 
@@ -2404,6 +2499,10 @@
         document.getElementById('playerVideoSelect').addEventListener('change', function() {
             const p = allPlayersCache.find(x => x.name === this.value);
             document.getElementById('playerVideoUrl').value = p?.video_url || '';
+            const fileNameEl = document.getElementById('playerVideoFileName');
+            if (fileNameEl) fileNameEl.textContent = 'No file selected';
+            const fileInput = document.getElementById('playerVideoFile');
+            if (fileInput) fileInput.value = '';
         });
 
         document.getElementById('playerVideoForm').addEventListener('submit', async (e) => {
