@@ -330,6 +330,12 @@
                                     <input id="playerVideoFile" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-m4v" class="hidden" onchange="uploadPlayerVideoFile(event)">
                                     <span id="playerVideoFileName" class="text-[11px] text-slate-500 truncate">No file selected</span>
                                 </div>
+                                <div class="space-y-1">
+                                    <div class="h-2 rounded-full bg-slate-700 overflow-hidden border border-slate-600">
+                                        <div id="playerVideoProgressBar" class="h-full w-0 bg-gradient-to-r from-pink-500 via-fuchsia-500 to-cyan-400 transition-all duration-200"></div>
+                                    </div>
+                                    <p id="playerVideoProgressText" class="text-[11px] text-slate-500">Ready to upload.</p>
+                                </div>
                                 <div id="playerVideoStatus" class="hidden text-xs rounded-xl p-3 leading-relaxed"></div>
                                 <button type="submit" class="w-full bg-pink-600 hover:bg-pink-700 text-white font-black py-3 rounded-xl uppercase tracking-wide transition">
                                     Save Intro Video 🎬
@@ -1605,6 +1611,97 @@
                 .slice(0, 60);
         }
 
+        function setPlayerVideoProgress(percent, text) {
+            const bar = document.getElementById('playerVideoProgressBar');
+            const label = document.getElementById('playerVideoProgressText');
+            if (bar) bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+            if (label && text) label.textContent = text;
+        }
+
+        async function compressPlayerVideoFile(file, onProgress) {
+            if (!window.MediaRecorder || !document.createElement('video').captureStream) {
+                onProgress?.(0, 'Compression not supported in this browser.');
+                return file;
+            }
+
+            const video = document.createElement('video');
+            video.muted = true;
+            video.playsInline = true;
+            video.preload = 'auto';
+
+            const objectUrl = URL.createObjectURL(file);
+            video.src = objectUrl;
+
+            await new Promise((resolve, reject) => {
+                video.onloadedmetadata = () => resolve();
+                video.onerror = () => reject(new Error('Could not read video metadata.'));
+            });
+
+            const duration = Number(video.duration) || 0;
+            if (!duration || !isFinite(duration)) {
+                URL.revokeObjectURL(objectUrl);
+                return file;
+            }
+
+            const maxWidth = 720;
+            const scale = Math.min(1, maxWidth / (video.videoWidth || maxWidth));
+            const width = Math.max(2, Math.round((video.videoWidth || maxWidth) * scale));
+            const height = Math.max(2, Math.round((video.videoHeight || maxWidth) * scale));
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d', { alpha: false });
+
+            const fps = 24;
+            const canvasStream = canvas.captureStream(fps);
+            const audioStream = video.captureStream ? video.captureStream() : null;
+            const tracks = [...canvasStream.getVideoTracks(), ...(audioStream ? audioStream.getAudioTracks() : [])];
+            const mixedStream = new MediaStream(tracks);
+
+            const mimeCandidates = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+            const mimeType = mimeCandidates.find(t => MediaRecorder.isTypeSupported(t)) || 'video/webm';
+            const recorder = new MediaRecorder(mixedStream, { mimeType, videoBitsPerSecond: 1500000, audioBitsPerSecond: 96000 });
+            const chunks = [];
+
+            recorder.ondataavailable = e => {
+                if (e.data?.size) chunks.push(e.data);
+            };
+
+            const finished = new Promise(resolve => {
+                recorder.onstop = resolve;
+            });
+
+            let ended = false;
+            video.onended = () => { ended = true; };
+
+            await video.play();
+            recorder.start();
+
+            const drawFrame = () => {
+                if (ended) return;
+                if (video.readyState >= 2) {
+                    ctx.drawImage(video, 0, 0, width, height);
+                    onProgress?.(Math.min(70, (video.currentTime / duration) * 70), `Compressing ${Math.round((video.currentTime / duration) * 100)}%`);
+                }
+                if (!video.paused && !video.ended) requestAnimationFrame(drawFrame);
+            };
+            requestAnimationFrame(drawFrame);
+
+            await new Promise(resolve => {
+                video.addEventListener('ended', resolve, { once: true });
+            });
+
+            recorder.stop();
+            await finished;
+
+            URL.revokeObjectURL(objectUrl);
+            if (mixedStream.getTracks) mixedStream.getTracks().forEach(t => t.stop());
+
+            const blob = new Blob(chunks, { type: mimeType });
+            return blob.size > 0 ? new File([blob], file.name.replace(/\.[^.]+$/, '.webm'), { type: mimeType }) : file;
+        }
+
         async function uploadPlayerVideoFile(event) {
             if (!ensureAdminUnlocked()) return;
 
@@ -1631,19 +1728,27 @@
             }
 
             statusEl.className = 'text-xs rounded-xl p-3 bg-slate-700 text-slate-300';
-            statusEl.textContent = '⏳ Uploading video…';
+            statusEl.textContent = '⏳ Preparing video…';
             statusEl.classList.remove('hidden');
+            setPlayerVideoProgress(3, 'Preparing video…');
 
             try {
-                const ext = (file.name.split('.').pop() || 'mp4').toLowerCase();
+                const compressed = await compressPlayerVideoFile(file, (pct, text) => {
+                    setPlayerVideoProgress(pct, text);
+                });
+
+                setPlayerVideoProgress(75, 'Uploading video…');
+                statusEl.textContent = '⏳ Uploading video…';
+
+                const ext = (compressed.name.split('.').pop() || 'webm').toLowerCase();
                 const safeName = sanitizeStorageName(name) || 'player';
                 const path = `${safeName}/${Date.now()}.${ext}`;
 
                 const { error: uploadErr } = await db.storage
                     .from(PLAYER_VIDEO_BUCKET)
-                    .upload(path, file, {
+                    .upload(path, compressed, {
                         upsert: true,
-                        contentType: file.type || 'video/mp4'
+                        contentType: compressed.type || 'video/webm'
                     });
 
                 if (uploadErr) throw uploadErr;
@@ -1661,6 +1766,7 @@
 
                 statusEl.className = 'text-xs rounded-xl p-3 bg-emerald-900/70 text-emerald-300';
                 statusEl.textContent = '✅ Uploaded and linked to player profile!';
+                setPlayerVideoProgress(100, 'Upload complete.');
 
                 await fetchAllData();
                 populatePlayerVideoSelect();
@@ -1673,6 +1779,7 @@
                 } else {
                     statusEl.textContent = '❌ ' + msg;
                 }
+                setPlayerVideoProgress(0, 'Upload failed.');
             } finally {
                 event.target.value = '';
                 if (fileNameEl) fileNameEl.textContent = 'No file selected';
