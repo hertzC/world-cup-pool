@@ -126,6 +126,26 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 mt-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-bold text-cyan-300 uppercase tracking-wider">📊 Group Tables</h3>
+                        <span class="text-[11px] text-slate-500">Auto-updates when matches are finished</span>
+                    </div>
+                    <div id="groupTablesWrap" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div class="animate-pulse bg-slate-700 h-40 rounded-xl md:col-span-2"></div>
+                    </div>
+
+                    <div class="border-t border-slate-700/60 mt-4 pt-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-bold text-fuchsia-300 uppercase tracking-wider">🏁 Possible Knockout Fixtures</h3>
+                            <span class="text-[11px] text-slate-500">Projection based on current tables</span>
+                        </div>
+                        <div id="knockoutProjectionWrap" class="space-y-2">
+                            <div class="animate-pulse bg-slate-700 h-20 rounded-xl"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- MATCHES ────────────────────────────────────── -->
@@ -897,6 +917,161 @@
             return `${y}-${m}-${day}`;
         }
 
+        function deriveGroupKeyByDate(match) {
+            const ymd = getHktYmd(match.match_date || match.created_at || null);
+            if (!ymd) return null;
+            const [y, m, d] = ymd.split('-').map(Number);
+            const dt = new Date(Date.UTC(y, m - 1, d));
+            const dayOfMonth = dt.getUTCDate();
+            // Approximate 2026 WC group-stage windows by date to map into 12 groups (A-L).
+            // This allows dynamic table updates without requiring new DB columns.
+            if (dayOfMonth >= 11 && dayOfMonth <= 14) {
+                return ['A','B','C','D','E','F','G','H','I','J','K','L'][(match.id - 1) % 12] || null;
+            }
+            if (dayOfMonth >= 15 && dayOfMonth <= 18) {
+                return ['A','B','C','D','E','F','G','H','I','J','K','L'][(match.id - 1) % 12] || null;
+            }
+            if (dayOfMonth >= 19 && dayOfMonth <= 26) {
+                return ['A','B','C','D','E','F','G','H','I','J','K','L'][(match.id - 1) % 12] || null;
+            }
+            return null;
+        }
+
+        function initTeamStats(team) {
+            return {
+                team,
+                p: 0,
+                w: 0,
+                d: 0,
+                l: 0,
+                gf: 0,
+                ga: 0,
+                gd: 0,
+                pts: 0
+            };
+        }
+
+        function computeGroupTables() {
+            const groups = {};
+
+            allMatchesCache
+                .filter(m => m.is_finished)
+                .forEach(m => {
+                    const group = deriveGroupKeyByDate(m);
+                    if (!group) return;
+
+                    const { home, away } = parseTeams(m.match_label);
+                    if (!groups[group]) groups[group] = {};
+                    if (!groups[group][home]) groups[group][home] = initTeamStats(home);
+                    if (!groups[group][away]) groups[group][away] = initTeamStats(away);
+
+                    const hs = Number(m.home_score);
+                    const as = Number(m.away_score);
+                    if (!Number.isFinite(hs) || !Number.isFinite(as)) return;
+
+                    const h = groups[group][home];
+                    const a = groups[group][away];
+
+                    h.p++; a.p++;
+                    h.gf += hs; h.ga += as;
+                    a.gf += as; a.ga += hs;
+
+                    if (hs > as) {
+                        h.w++; h.pts += 3;
+                        a.l++;
+                    } else if (hs < as) {
+                        a.w++; a.pts += 3;
+                        h.l++;
+                    } else {
+                        h.d++; a.d++;
+                        h.pts++; a.pts++;
+                    }
+                });
+
+            const sortedGroups = Object.entries(groups)
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([group, table]) => {
+                    const rows = Object.values(table).map(r => ({ ...r, gd: r.gf - r.ga }))
+                        .sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.team.localeCompare(b.team));
+                    return { group, rows };
+                });
+
+            return sortedGroups;
+        }
+
+        function renderGroupTables() {
+            const wrap = document.getElementById('groupTablesWrap');
+            if (!wrap) return;
+
+            const tables = computeGroupTables();
+            if (!tables.length) {
+                wrap.innerHTML = '<p class="text-sm text-slate-500 md:col-span-2">No finished group matches yet.</p>';
+                return;
+            }
+
+            wrap.innerHTML = tables.map(({ group, rows }) => `
+                <div class="bg-slate-900/40 border border-slate-700 rounded-xl p-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <p class="text-xs font-black text-cyan-300 uppercase tracking-wider">Group ${group}</p>
+                        <p class="text-[10px] text-slate-500">P/PTS/GD</p>
+                    </div>
+                    <div class="space-y-1">
+                        ${rows.map((r, i) => `
+                            <div class="grid grid-cols-[20px,1fr,28px,34px,34px] gap-2 items-center text-xs ${i < 2 ? 'bg-emerald-900/20 border border-emerald-800/40' : 'bg-slate-800/50 border border-slate-700/40'} rounded-lg px-2 py-1.5">
+                                <span class="text-slate-400 font-bold">${i + 1}</span>
+                                <span class="text-slate-200 truncate">${teamWithFlagText(r.team)}</span>
+                                <span class="text-slate-400 text-right">${r.p}</span>
+                                <span class="text-slate-400 text-right">${r.pts}</span>
+                                <span class="text-slate-400 text-right">${r.gd > 0 ? '+' : ''}${r.gd}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderKnockoutProjection() {
+            const wrap = document.getElementById('knockoutProjectionWrap');
+            if (!wrap) return;
+
+            const tables = computeGroupTables();
+            const topTwoByGroup = {};
+            tables.forEach(({ group, rows }) => {
+                topTwoByGroup[group] = {
+                    first: rows[0]?.team || null,
+                    second: rows[1]?.team || null
+                };
+            });
+
+            const pairings = [
+                ['A', 'B'], ['C', 'D'], ['E', 'F'], ['G', 'H'],
+                ['I', 'J'], ['K', 'L']
+            ];
+
+            const matches = pairings.map(([g1, g2], idx) => {
+                const home = topTwoByGroup[g1]?.first || `1st ${g1}`;
+                const away = topTwoByGroup[g2]?.second || `2nd ${g2}`;
+                const home2 = topTwoByGroup[g2]?.first || `1st ${g2}`;
+                const away2 = topTwoByGroup[g1]?.second || `2nd ${g1}`;
+                return [
+                    { id: `R16-${idx * 2 + 1}`, home, away },
+                    { id: `R16-${idx * 2 + 2}`, home: home2, away: away2 }
+                ];
+            }).flat();
+
+            if (!matches.length) {
+                wrap.innerHTML = '<p class="text-sm text-slate-500">Knockout projection will appear after group tables update.</p>';
+                return;
+            }
+
+            wrap.innerHTML = matches.map(m => `
+                <div class="bg-slate-900/45 border border-slate-700 rounded-xl p-3">
+                    <p class="text-[10px] text-fuchsia-300 font-bold uppercase tracking-wider mb-1">${m.id}</p>
+                    <p class="text-sm text-slate-200">${teamWithFlagText(m.home)} <span class="text-slate-500">vs</span> ${teamWithFlagText(m.away)}</p>
+                </div>
+            `).join('');
+        }
+
         function getFinishedDateLabel(ymd) {
             const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
             if (!m) return ymd;
@@ -1432,6 +1607,8 @@
             allPlayersCache     = playerRes.data || [];
 
             renderLeaderboard();
+            renderGroupTables();
+            renderKnockoutProjection();
             renderUserSelect();
             renderMatchCards();
             populateHighlightDropdown();
