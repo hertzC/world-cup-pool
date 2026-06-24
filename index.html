@@ -1534,11 +1534,7 @@
                 console.warn('Signed URL failed; trying public URL.', err);
             }
 
-            const { data: publicData } = db.storage
-                .from(embed.bucket)
-                .getPublicUrl(embed.path);
-
-            return publicData?.publicUrl || url;
+            return url;
         }
 
         async function openPlayerVideo(playerName, event) {
@@ -1775,7 +1771,7 @@
                 const msg = String(err?.message || err || 'Upload failed');
                 statusEl.className = 'text-xs rounded-xl p-3 bg-red-900 text-red-300';
                 if (/bucket/i.test(msg) && /not found|does not exist/i.test(msg)) {
-                    statusEl.textContent = `❌ Storage bucket '${PLAYER_VIDEO_BUCKET}' not found. Create it in Supabase Storage first.`;
+                    statusEl.textContent = `❌ Storage bucket '${PLAYER_VIDEO_BUCKET}' not found. Create it in Supabase Storage first (private bucket is fine).`;
                 } else {
                     statusEl.textContent = '❌ ' + msg;
                 }
