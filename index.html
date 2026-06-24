@@ -1496,6 +1496,10 @@
         // ── Player intro video ────────────────────────────────
         function toVideoEmbed(url) {
             if (!url) return null;
+            const storageMatch = String(url).match(/^supabase:\/\/([^/]+)\/(.+)$/i);
+            if (storageMatch) {
+                return { type: 'storage', bucket: storageMatch[1], path: storageMatch[2] };
+            }
             // YouTube
             let m = url.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
             if (m) return { type: 'yt', id: m[1] };
@@ -1509,12 +1513,35 @@
             return { type: 'direct', url };
         }
 
-        function openPlayerVideo(playerName, event) {
+        async function resolvePlayerVideoUrl(url) {
+            const embed = toVideoEmbed(url);
+            if (!embed) return url;
+            if (embed.type !== 'storage') return url;
+
+            try {
+                const { data, error } = await db.storage
+                    .from(embed.bucket)
+                    .createSignedUrl(embed.path, 60 * 60 * 24);
+
+                if (!error && data?.signedUrl) return data.signedUrl;
+            } catch (err) {
+                console.warn('Signed URL failed; trying public URL.', err);
+            }
+
+            const { data: publicData } = db.storage
+                .from(embed.bucket)
+                .getPublicUrl(embed.path);
+
+            return publicData?.publicUrl || url;
+        }
+
+        async function openPlayerVideo(playerName, event) {
             if (event) event.stopPropagation();
             const player = allPlayersCache.find(p => p.name === playerName);
             if (!player?.video_url) return;
 
-            const embed = toVideoEmbed(player.video_url);
+            const resolvedUrl = await resolvePlayerVideoUrl(player.video_url);
+            const embed = toVideoEmbed(resolvedUrl);
             if (!embed) return;
 
             const header = document.getElementById('videoModalHeader');
@@ -1531,9 +1558,12 @@
                 playerEl.innerHTML = `<div class="aspect-video">
                     <iframe src="https://www.youtube.com/embed/${embed.id}?autoplay=1&rel=0" allow="autoplay; encrypted-media" allowfullscreen
                         class="w-full h-full"></iframe></div>`;
-            } else {
-                playerEl.innerHTML = `<video src="${embed.url}" controls autoplay playsinline
+            } else if (embed.type === 'storage' || embed.type === 'direct') {
+                const videoUrl = embed.type === 'storage' ? resolvedUrl : embed.url;
+                playerEl.innerHTML = `<video src="${videoUrl}" controls autoplay playsinline
                     class="w-full max-h-[60vh] object-contain bg-black"></video>`;
+            } else {
+                playerEl.innerHTML = '';
             }
 
             const modal = document.getElementById('videoModal');
@@ -1618,21 +1648,16 @@
 
                 if (uploadErr) throw uploadErr;
 
-                const { data: publicData } = db.storage
-                    .from(PLAYER_VIDEO_BUCKET)
-                    .getPublicUrl(path);
-
-                const publicUrl = publicData?.publicUrl;
-                if (!publicUrl) throw new Error('Could not get video URL after upload.');
+                const storageUri = `supabase://${PLAYER_VIDEO_BUCKET}/${path}`;
 
                 const { error: saveErr } = await db.from('family_members')
-                    .update({ video_url: publicUrl })
+                    .update({ video_url: storageUri })
                     .eq('name', name);
 
                 if (saveErr) throw saveErr;
 
                 const urlInput = document.getElementById('playerVideoUrl');
-                if (urlInput) urlInput.value = publicUrl;
+                if (urlInput) urlInput.value = storageUri;
 
                 statusEl.className = 'text-xs rounded-xl p-3 bg-emerald-900/70 text-emerald-300';
                 statusEl.textContent = '✅ Uploaded and linked to player profile!';
