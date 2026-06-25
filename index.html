@@ -53,6 +53,10 @@
                 class="tab-btn flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 border-indigo-500 text-indigo-400">
                 🏆 Standings
             </button>
+            <button onclick="switchTab('tables')" id="tab-tables"
+                class="tab-btn flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 border-transparent text-slate-400">
+                📊 Tables
+            </button>
             <button onclick="switchTab('matches')" id="tab-matches"
                 class="tab-btn flex-1 py-3 text-xs font-bold uppercase tracking-wide border-b-2 border-transparent text-slate-400">
                 ⚽ Matches
@@ -126,17 +130,34 @@
                         </div>
                     </div>
                 </div>
+                </div>
+            </div>
 
-                <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700 mt-4">
-                    <div class="flex items-center justify-between mb-3">
-                        <h3 class="text-sm font-bold text-cyan-300 uppercase tracking-wider">📊 Group Tables</h3>
+            <!-- TABLES ─────────────────────────────────────── -->
+            <div id="content-tables" style="display:none">
+                <div class="bg-slate-800 rounded-2xl p-5 border border-slate-700">
+                    <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+                        <h3 class="text-sm font-bold text-cyan-300 uppercase tracking-wider">📊 Standings Details</h3>
                         <span class="text-[11px] text-slate-500">Auto-updates when matches are finished</span>
                     </div>
-                    <div id="groupTablesWrap" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div class="animate-pulse bg-slate-700 h-40 rounded-xl md:col-span-2"></div>
+                    <div class="flex gap-2 mb-4 flex-wrap">
+                        <button type="button" id="standingsViewGroupsBtn" onclick="switchStandingsView('groups')"
+                            class="text-[11px] font-bold px-3 py-1.5 rounded-full border border-cyan-500 text-cyan-100 bg-cyan-700/40 transition">
+                            Group Tables
+                        </button>
+                        <button type="button" id="standingsViewKnockoutBtn" onclick="switchStandingsView('knockout')"
+                            class="text-[11px] font-bold px-3 py-1.5 rounded-full border border-slate-600 text-slate-300 bg-slate-800 hover:bg-slate-700 transition">
+                            Knockout Stage
+                        </button>
                     </div>
 
-                    <div class="border-t border-slate-700/60 mt-4 pt-4">
+                    <div id="standingsViewGroups">
+                        <div id="groupTablesWrap" class="grid grid-cols-1 gap-3">
+                            <div class="animate-pulse bg-slate-700 h-40 rounded-xl"></div>
+                        </div>
+                    </div>
+
+                    <div id="standingsViewKnockout" style="display:none">
                         <div class="flex items-center justify-between mb-3">
                             <h3 class="text-sm font-bold text-fuchsia-300 uppercase tracking-wider">🏁 Possible Knockout Fixtures</h3>
                             <span class="text-[11px] text-slate-500">Projection based on current tables</span>
@@ -435,6 +456,7 @@
         let recapAutoTimerId    = null;
         let recapAudioBuffer    = null;
         let recapAudioName      = '';
+        let standingsView       = 'groups';
 
         const STANDINGS_NOTES = [261.63, 329.63, 392.0, 523.25, 392.0, 329.63];
 
@@ -861,7 +883,7 @@
                 b.classList.remove('border-indigo-500', 'text-indigo-400');
                 b.classList.add('border-transparent', 'text-slate-400');
             });
-            ['standings','matches','predict','admin'].forEach(t => {
+            ['standings','tables','matches','predict','admin'].forEach(t => {
                 document.getElementById('content-' + t).style.display = 'none';
             });
             document.getElementById('tab-' + tab).classList.remove('border-transparent', 'text-slate-400');
@@ -870,6 +892,31 @@
 
             if (tab === 'standings' && standingsMusicOn) startStandingsMusic();
             else stopStandingsMusic();
+        }
+
+        function updateStandingsViewUI() {
+            const groupsBtn = document.getElementById('standingsViewGroupsBtn');
+            const knockoutBtn = document.getElementById('standingsViewKnockoutBtn');
+            const groupsPane = document.getElementById('standingsViewGroups');
+            const knockoutPane = document.getElementById('standingsViewKnockout');
+
+            if (!groupsBtn || !knockoutBtn || !groupsPane || !knockoutPane) return;
+
+            const showGroups = standingsView === 'groups';
+            groupsPane.style.display = showGroups ? 'block' : 'none';
+            knockoutPane.style.display = showGroups ? 'none' : 'block';
+
+            groupsBtn.className = showGroups
+                ? 'text-[11px] font-bold px-3 py-1.5 rounded-full border border-cyan-500 text-cyan-100 bg-cyan-700/40 transition'
+                : 'text-[11px] font-bold px-3 py-1.5 rounded-full border border-slate-600 text-slate-300 bg-slate-800 hover:bg-slate-700 transition';
+            knockoutBtn.className = showGroups
+                ? 'text-[11px] font-bold px-3 py-1.5 rounded-full border border-slate-600 text-slate-300 bg-slate-800 hover:bg-slate-700 transition'
+                : 'text-[11px] font-bold px-3 py-1.5 rounded-full border border-fuchsia-500 text-fuchsia-100 bg-fuchsia-700/40 transition';
+        }
+
+        function switchStandingsView(view) {
+            standingsView = view === 'knockout' ? 'knockout' : 'groups';
+            updateStandingsViewUI();
         }
 
         // ── Filter pills ──────────────────────────────────────
@@ -918,81 +965,71 @@
         }
 
         function inferGroupAssignments() {
-            const matches = [...allMatchesCache].sort((a, b) => {
-                const ta = getMatchSortTimestamp(a);
-                const tb = getMatchSortTimestamp(b);
-                return ta - tb || (a.id || 0) - (b.id || 0);
-            });
+            const matches = [...allMatchesCache]
+                .filter(m => {
+                    const { home, away } = parseTeams(m.match_label);
+                    return home && away && home !== '?' && away !== '?';
+                })
+                .sort((a, b) => (a.id || 0) - (b.id || 0));
 
-            // Build first-3-opponents profile per team (group-stage signature)
-            const opponentOrder = {};
+            const teamToOpponents = {};
+            const teamToMatchIds = {};
+
             matches.forEach(m => {
                 const { home, away } = parseTeams(m.match_label);
-                if (!home || !away || home === '?' || away === '?') return;
+                const matchId = Number(m.id || 0);
 
-                opponentOrder[home] = opponentOrder[home] || [];
-                opponentOrder[away] = opponentOrder[away] || [];
+                teamToOpponents[home] = teamToOpponents[home] || new Set();
+                teamToOpponents[away] = teamToOpponents[away] || new Set();
+                teamToMatchIds[home] = teamToMatchIds[home] || [];
+                teamToMatchIds[away] = teamToMatchIds[away] || [];
 
-                if (!opponentOrder[home].includes(away) && opponentOrder[home].length < 3) opponentOrder[home].push(away);
-                if (!opponentOrder[away].includes(home) && opponentOrder[away].length < 3) opponentOrder[away].push(home);
+                teamToOpponents[home].add(away);
+                teamToOpponents[away].add(home);
+                teamToMatchIds[home].push(matchId);
+                teamToMatchIds[away].push(matchId);
             });
 
-            const teams = Object.keys(opponentOrder);
-            const adjacency = Object.fromEntries(teams.map(t => [t, new Set()]));
-
-            // Link teams if they appear in each other's first-3 opponents.
-            teams.forEach(team => {
-                (opponentOrder[team] || []).forEach(opp => {
-                    if ((opponentOrder[opp] || []).includes(team)) {
-                        adjacency[team].add(opp);
-                        if (!adjacency[opp]) adjacency[opp] = new Set();
-                        adjacency[opp].add(team);
-                    }
-                });
-            });
-
-            // Connected components represent inferred groups.
+            const teams = Object.keys(teamToOpponents);
             const visited = new Set();
             const components = [];
+
             teams.forEach(team => {
                 if (visited.has(team)) return;
                 const stack = [team];
-                const comp = [];
+                const component = [];
                 visited.add(team);
+
                 while (stack.length) {
-                    const cur = stack.pop();
-                    comp.push(cur);
-                    (adjacency[cur] || new Set()).forEach(n => {
-                        if (!visited.has(n)) {
-                            visited.add(n);
-                            stack.push(n);
+                    const current = stack.pop();
+                    component.push(current);
+                    (teamToOpponents[current] || new Set()).forEach(opponent => {
+                        if (!visited.has(opponent)) {
+                            visited.add(opponent);
+                            stack.push(opponent);
                         }
                     });
                 }
-                components.push(comp);
+
+                components.push(component.sort((a, b) => a.localeCompare(b)));
             });
 
-            // Stable ordering by first appearance in schedule.
-            const firstSeenIdx = {};
-            matches.forEach((m, idx) => {
-                const { home, away } = parseTeams(m.match_label);
-                if (firstSeenIdx[home] === undefined) firstSeenIdx[home] = idx;
-                if (firstSeenIdx[away] === undefined) firstSeenIdx[away] = idx;
-            });
+            const groups = components
+                .map(teamsInGroup => {
+                    const firstMatchId = Math.min(...teamsInGroup.flatMap(team => teamToMatchIds[team] || [Number.MAX_SAFE_INTEGER]));
+                    return { teams: teamsInGroup, firstMatchId };
+                })
+                .sort((a, b) => a.firstMatchId - b.firstMatchId);
 
             const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-            const sortedComponents = components
-                .map(c => [...c].sort((a, b) => a.localeCompare(b)))
-                .sort((a, b) => Math.min(...a.map(t => firstSeenIdx[t] ?? 99999)) - Math.min(...b.map(t => firstSeenIdx[t] ?? 99999)));
-
             const teamToGroup = {};
-            const groups = sortedComponents.map((teamsInGroup, idx) => {
+            const labelledGroups = groups.map((groupEntry, idx) => {
                 const group = letters[idx] || `G${idx + 1}`;
-                teamsInGroup.forEach(t => { teamToGroup[t] = group; });
-                return { group, teams: teamsInGroup };
+                groupEntry.teams.forEach(team => { teamToGroup[team] = group; });
+                return { group, teams: groupEntry.teams };
             });
 
-            return { teamToGroup, groups };
+            return { teamToGroup, groups: labelledGroups };
         }
 
         function initTeamStats(team) {
@@ -1012,16 +1049,19 @@
         function computeGroupTables() {
             const inferred = inferGroupAssignments();
             const groups = {};
+            const formByTeam = {};
 
             inferred.groups.forEach(g => {
                 groups[g.group] = groups[g.group] || {};
                 g.teams.forEach(team => {
                     groups[g.group][team] = initTeamStats(team);
+                    formByTeam[team] = [];
                 });
             });
 
             allMatchesCache
                 .filter(m => m.is_finished)
+                .sort((a, b) => getMatchSortTimestamp(a) - getMatchSortTimestamp(b) || (a.id || 0) - (b.id || 0))
                 .forEach(m => {
                     const { home, away } = parseTeams(m.match_label);
                     const homeGroup = inferred.teamToGroup[home];
@@ -1044,22 +1084,38 @@
                     h.gf += hs; h.ga += as;
                     a.gf += as; a.ga += hs;
 
+                    let homeResult = 'D';
+                    let awayResult = 'D';
+
                     if (hs > as) {
                         h.w++; h.pts += 3;
                         a.l++;
+                        homeResult = 'W';
+                        awayResult = 'L';
                     } else if (hs < as) {
                         a.w++; a.pts += 3;
                         h.l++;
+                        homeResult = 'L';
+                        awayResult = 'W';
                     } else {
                         h.d++; a.d++;
                         h.pts++; a.pts++;
                     }
+
+                    formByTeam[home] = formByTeam[home] || [];
+                    formByTeam[away] = formByTeam[away] || [];
+                    formByTeam[home].push(homeResult);
+                    formByTeam[away].push(awayResult);
                 });
 
             const sortedGroups = Object.entries(groups)
                 .sort((a, b) => a[0].localeCompare(b[0]))
                 .map(([group, table]) => {
-                    const rows = Object.values(table).map(r => ({ ...r, gd: r.gf - r.ga }))
+                    const rows = Object.values(table).map(r => ({
+                        ...r,
+                        gd: r.gf - r.ga,
+                        form: (formByTeam[r.team] || []).slice(-6)
+                    }))
                         .sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.team.localeCompare(b.team));
                     return { group, rows };
                 });
@@ -1078,21 +1134,50 @@
             }
 
             wrap.innerHTML = tables.map(({ group, rows }) => `
-                <div class="bg-slate-900/40 border border-slate-700 rounded-xl p-3">
-                    <div class="flex items-center justify-between mb-2">
-                        <p class="text-xs font-black text-cyan-300 uppercase tracking-wider">Group ${group}</p>
-                        <p class="text-[10px] text-slate-500">P/PTS/GD</p>
+                <div class="bg-slate-950/35 border border-slate-700/80 rounded-2xl overflow-hidden">
+                    <div class="flex items-center justify-between px-4 py-3 border-b border-slate-700/70 bg-slate-900/60">
+                        <p class="text-xs font-black text-cyan-300 uppercase tracking-[0.22em]">Group ${group}</p>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-[0.2em]">Team | P | W | D | L | GF | GA | GD | Pts | Form</p>
                     </div>
-                    <div class="space-y-1">
-                        ${rows.map((r, i) => `
-                            <div class="grid grid-cols-[20px,1fr,28px,34px,34px] gap-2 items-center text-xs ${i < 2 ? 'bg-emerald-900/20 border border-emerald-800/40' : 'bg-slate-800/50 border border-slate-700/40'} rounded-lg px-2 py-1.5">
-                                <span class="text-slate-400 font-bold">${i + 1}</span>
-                                <span class="text-slate-200 truncate">${teamWithFlagText(r.team)}</span>
-                                <span class="text-slate-400 text-right">${r.p}</span>
-                                <span class="text-slate-400 text-right">${r.pts}</span>
-                                <span class="text-slate-400 text-right">${r.gd > 0 ? '+' : ''}${r.gd}</span>
-                            </div>
-                        `).join('')}
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs whitespace-nowrap">
+                            <thead class="bg-slate-900/40 text-slate-400 uppercase tracking-[0.18em] text-[10px]">
+                                <tr>
+                                    <th class="px-4 py-3 font-semibold">Team</th>
+                                    <th class="px-3 py-3 text-right font-semibold">P</th>
+                                    <th class="px-3 py-3 text-right font-semibold">W</th>
+                                    <th class="px-3 py-3 text-right font-semibold">D</th>
+                                    <th class="px-3 py-3 text-right font-semibold">L</th>
+                                    <th class="px-3 py-3 text-right font-semibold">GF</th>
+                                    <th class="px-3 py-3 text-right font-semibold">GA</th>
+                                    <th class="px-3 py-3 text-right font-semibold">GD</th>
+                                    <th class="px-3 py-3 text-right font-semibold">Pts</th>
+                                    <th class="px-4 py-3 font-semibold">Form</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows.map((r, i) => `
+                                    <tr class="${i < 2 ? 'bg-emerald-950/20' : 'bg-transparent'} border-t border-slate-800/80">
+                                        <td class="px-4 py-3 font-semibold text-slate-100">${teamWithFlagHtml(r.team)}</td>
+                                        <td class="px-3 py-3 text-right text-slate-300">${r.p}</td>
+                                        <td class="px-3 py-3 text-right text-slate-300">${r.w}</td>
+                                        <td class="px-3 py-3 text-right text-slate-300">${r.d}</td>
+                                        <td class="px-3 py-3 text-right text-slate-300">${r.l}</td>
+                                        <td class="px-3 py-3 text-right text-slate-300">${r.gf}</td>
+                                        <td class="px-3 py-3 text-right text-slate-300">${r.ga}</td>
+                                        <td class="px-3 py-3 text-right text-slate-300">${r.gd > 0 ? '+' : ''}${r.gd}</td>
+                                        <td class="px-3 py-3 text-right font-black ${i < 2 ? 'text-emerald-300' : 'text-slate-100'}">${r.pts}</td>
+                                        <td class="px-4 py-3">
+                                            <div class="flex flex-wrap gap-1">
+                                                ${(r.form || []).length ? r.form.map(res => `
+                                                    <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-black ${res === 'W' ? 'bg-emerald-500 text-white' : res === 'D' ? 'bg-amber-500 text-slate-950' : 'bg-rose-500 text-white'}">${res}</span>
+                                                `).join('') : '<span class="text-slate-500">-</span>'}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             `).join('');
@@ -1111,33 +1196,146 @@
                 };
             });
 
-            const pairings = [
+            const roundOf32 = [
                 ['A', 'B'], ['C', 'D'], ['E', 'F'], ['G', 'H'],
                 ['I', 'J'], ['K', 'L']
-            ];
+            ].map(([g1, g2], idx) => ({
+                id: `R32-${idx * 2 + 1}`,
+                round: 'Last 32',
+                home: topTwoByGroup[g1]?.first || `1st ${g1}`,
+                away: topTwoByGroup[g2]?.second || `2nd ${g2}`,
+                note: `As it stands ${topTwoByGroup[g1]?.first || `1st ${g1}`} will play ${topTwoByGroup[g2]?.second || `2nd ${g2}`}`
+            })).flatMap((item, idx, list) => {
+                const pairIndex = Math.floor(idx / 2);
+                const [g1, g2] = [
+                    ['A', 'B'], ['C', 'D'], ['E', 'F'], ['G', 'H'], ['I', 'J'], ['K', 'L']
+                ][pairIndex] || ['A', 'B'];
+                const home = idx % 2 === 0
+                    ? (topTwoByGroup[g1]?.first || `1st ${g1}`)
+                    : (topTwoByGroup[g2]?.first || `1st ${g2}`);
+                const away = idx % 2 === 0
+                    ? (topTwoByGroup[g2]?.second || `2nd ${g2}`)
+                    : (topTwoByGroup[g1]?.second || `2nd ${g1}`);
+                return [{
+                    id: `R32-${idx + 1}`,
+                    round: 'Last 32',
+                    home,
+                    away,
+                    note: `As it stands ${home} will play ${away}`
+                }];
+            });
 
-            const matches = pairings.map(([g1, g2], idx) => {
-                const home = topTwoByGroup[g1]?.first || `1st ${g1}`;
-                const away = topTwoByGroup[g2]?.second || `2nd ${g2}`;
-                const home2 = topTwoByGroup[g2]?.first || `1st ${g2}`;
-                const away2 = topTwoByGroup[g1]?.second || `2nd ${g1}`;
-                return [
-                    { id: `R16-${idx * 2 + 1}`, home, away },
-                    { id: `R16-${idx * 2 + 2}`, home: home2, away: away2 }
-                ];
-            }).flat();
-
-            if (!matches.length) {
+            if (!roundOf32.length) {
                 wrap.innerHTML = '<p class="text-sm text-slate-500">Knockout projection will appear after group tables update.</p>';
                 return;
             }
 
-            wrap.innerHTML = matches.map(m => `
-                <div class="bg-slate-900/45 border border-slate-700 rounded-xl p-3">
-                    <p class="text-[10px] text-fuchsia-300 font-bold uppercase tracking-wider mb-1">${m.id}</p>
-                    <p class="text-sm text-slate-200">${teamWithFlagText(m.home)} <span class="text-slate-500">vs</span> ${teamWithFlagText(m.away)}</p>
-                </div>
+            const round16 = [
+                ['R32-1', 'R32-2'], ['R32-3', 'R32-4'], ['R32-5', 'R32-6'],
+                ['R32-7', 'R32-8'], ['R32-9', 'R32-10'], ['R32-11', 'R32-12']
+            ].map((pair, idx) => ({
+                id: `R16-${idx + 1}`,
+                round: 'Last 16',
+                home: `Winner of ${pair[0]}`,
+                away: `Winner of ${pair[1]}`,
+                note: 'Projected winners advance here'
+            }));
+
+            const quarterFinals = [
+                ['R16-1', 'R16-2'], ['R16-3', 'R16-4'], ['R16-5', 'R16-6']
+            ].map((pair, idx) => ({
+                id: `QF-${idx + 1}`,
+                round: 'Quarter-finals',
+                home: `Winner of ${pair[0]}`,
+                away: `Winner of ${pair[1]}`,
+                note: 'Winner to the semi-finals'
+            }));
+
+            const semiFinals = [
+                ['QF-1', 'QF-2'], ['QF-3', 'QF-4']
+            ].map((pair, idx) => ({
+                id: `SF-${idx + 1}`,
+                round: 'Semi-finals',
+                home: `Winner of ${pair[0]}`,
+                away: `Winner of ${pair[1]}`,
+                note: 'Winner to the final'
+            }));
+
+            const finalMatch = [{
+                id: 'F-1',
+                round: 'Final',
+                home: 'Winner of SF-1',
+                away: 'Winner of SF-2',
+                note: 'Trophy decider'
+            }];
+
+            const roundGroups = [
+                { title: 'Last 32', chips: 'Knockout Stage', items: roundOf32 },
+                { title: 'Last 16', chips: 'Round of 16', items: round16 },
+                { title: 'Quarter-finals', chips: 'QF', items: quarterFinals },
+                { title: 'Semi-finals', chips: 'SF', items: semiFinals },
+                { title: 'Final', chips: 'Title match', items: finalMatch }
+            ];
+
+            const roundChipHtml = roundGroups.map(r => `
+                <button type="button" class="shrink-0 text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1.5 rounded-full border ${r.title === 'Last 32' ? 'border-fuchsia-500 text-fuchsia-100 bg-fuchsia-700/30' : 'border-slate-600 text-slate-300 bg-slate-800'}">
+                    ${r.chips}
+                </button>
             `).join('');
+
+            wrap.innerHTML = `
+                <div class="bg-slate-950/35 border border-slate-700/80 rounded-2xl overflow-hidden">
+                    <div class="px-4 py-3 border-b border-slate-700/70 bg-slate-900/70 flex items-center justify-between gap-3 flex-wrap">
+                        <div>
+                            <p class="text-xs font-black text-fuchsia-300 uppercase tracking-[0.22em]">Knockout Stage</p>
+                            <p class="text-[11px] text-slate-500 mt-1">BBC-style view of the bracket as it stands</p>
+                        </div>
+                        <div class="flex flex-wrap gap-2">${roundChipHtml}</div>
+                    </div>
+                    <div class="p-4 space-y-5">
+                        ${roundGroups.map(section => `
+                            <section class="space-y-3">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-[10px] font-black uppercase tracking-[0.22em] px-2.5 py-1 rounded-full border border-slate-600 text-slate-300 bg-slate-800">${section.chips}</span>
+                                        <h4 class="text-sm font-black text-slate-100 uppercase tracking-[0.16em]">${section.title}</h4>
+                                    </div>
+                                    <span class="text-[10px] text-slate-500 uppercase tracking-[0.18em]">As it stands</span>
+                                </div>
+                                <div class="space-y-2.5">
+                                    ${section.items.map(item => `
+                                        <div class="rounded-xl border border-slate-700/70 bg-slate-900/50 px-3 py-3 shadow-sm">
+                                            <div class="flex items-center justify-between gap-3 mb-2">
+                                                <p class="text-[10px] font-black text-fuchsia-300 uppercase tracking-[0.22em]">${item.id}</p>
+                                                <p class="text-[10px] text-slate-500 uppercase tracking-[0.18em]">Projected</p>
+                                            </div>
+                                            <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                                                <div class="min-w-0">
+                                                    <div class="flex items-center gap-2 min-w-0">
+                                                        <span class="shrink-0 text-[10px] font-black px-2 py-1 rounded-full border border-slate-600 text-slate-400 bg-slate-800">HOME</span>
+                                                        <div class="min-w-0 text-sm font-semibold text-slate-100 truncate">${teamWithFlagHtml(item.home)}</div>
+                                                    </div>
+                                                </div>
+                                                <div class="text-center px-2">
+                                                    <div class="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500">vs</div>
+                                                    <div class="text-[10px] text-slate-600 mt-1">${item.round}</div>
+                                                </div>
+                                                <div class="min-w-0 text-right">
+                                                    <div class="flex items-center justify-end gap-2 min-w-0">
+                                                        <div class="min-w-0 text-sm font-semibold text-slate-100 truncate">${teamWithFlagHtml(item.away)}</div>
+                                                        <span class="shrink-0 text-[10px] font-black px-2 py-1 rounded-full border border-slate-600 text-slate-400 bg-slate-800">AWAY</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <p class="mt-2 text-[11px] text-slate-500">${item.note}</p>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </section>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
         }
 
         function getFinishedDateLabel(ymd) {
@@ -1648,6 +1846,7 @@
         async function initApp() {
             updateAdminAccessUI();
             await Promise.all([fetchAllData(), populateMatchDropdowns()]);
+            updateStandingsViewUI();
             updateStandingsMusicButton();
             updateRecapButtonState();
             updateRecapAudioStatus();
