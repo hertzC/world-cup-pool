@@ -917,24 +917,82 @@
             return `${y}-${m}-${day}`;
         }
 
-        function deriveGroupKeyByDate(match) {
-            const ymd = getHktYmd(match.match_date || match.created_at || null);
-            if (!ymd) return null;
-            const [y, m, d] = ymd.split('-').map(Number);
-            const dt = new Date(Date.UTC(y, m - 1, d));
-            const dayOfMonth = dt.getUTCDate();
-            // Approximate 2026 WC group-stage windows by date to map into 12 groups (A-L).
-            // This allows dynamic table updates without requiring new DB columns.
-            if (dayOfMonth >= 11 && dayOfMonth <= 14) {
-                return ['A','B','C','D','E','F','G','H','I','J','K','L'][(match.id - 1) % 12] || null;
-            }
-            if (dayOfMonth >= 15 && dayOfMonth <= 18) {
-                return ['A','B','C','D','E','F','G','H','I','J','K','L'][(match.id - 1) % 12] || null;
-            }
-            if (dayOfMonth >= 19 && dayOfMonth <= 26) {
-                return ['A','B','C','D','E','F','G','H','I','J','K','L'][(match.id - 1) % 12] || null;
-            }
-            return null;
+        function inferGroupAssignments() {
+            const matches = [...allMatchesCache].sort((a, b) => {
+                const ta = getMatchSortTimestamp(a);
+                const tb = getMatchSortTimestamp(b);
+                return ta - tb || (a.id || 0) - (b.id || 0);
+            });
+
+            // Build first-3-opponents profile per team (group-stage signature)
+            const opponentOrder = {};
+            matches.forEach(m => {
+                const { home, away } = parseTeams(m.match_label);
+                if (!home || !away || home === '?' || away === '?') return;
+
+                opponentOrder[home] = opponentOrder[home] || [];
+                opponentOrder[away] = opponentOrder[away] || [];
+
+                if (!opponentOrder[home].includes(away) && opponentOrder[home].length < 3) opponentOrder[home].push(away);
+                if (!opponentOrder[away].includes(home) && opponentOrder[away].length < 3) opponentOrder[away].push(home);
+            });
+
+            const teams = Object.keys(opponentOrder);
+            const adjacency = Object.fromEntries(teams.map(t => [t, new Set()]));
+
+            // Link teams if they appear in each other's first-3 opponents.
+            teams.forEach(team => {
+                (opponentOrder[team] || []).forEach(opp => {
+                    if ((opponentOrder[opp] || []).includes(team)) {
+                        adjacency[team].add(opp);
+                        if (!adjacency[opp]) adjacency[opp] = new Set();
+                        adjacency[opp].add(team);
+                    }
+                });
+            });
+
+            // Connected components represent inferred groups.
+            const visited = new Set();
+            const components = [];
+            teams.forEach(team => {
+                if (visited.has(team)) return;
+                const stack = [team];
+                const comp = [];
+                visited.add(team);
+                while (stack.length) {
+                    const cur = stack.pop();
+                    comp.push(cur);
+                    (adjacency[cur] || new Set()).forEach(n => {
+                        if (!visited.has(n)) {
+                            visited.add(n);
+                            stack.push(n);
+                        }
+                    });
+                }
+                components.push(comp);
+            });
+
+            // Stable ordering by first appearance in schedule.
+            const firstSeenIdx = {};
+            matches.forEach((m, idx) => {
+                const { home, away } = parseTeams(m.match_label);
+                if (firstSeenIdx[home] === undefined) firstSeenIdx[home] = idx;
+                if (firstSeenIdx[away] === undefined) firstSeenIdx[away] = idx;
+            });
+
+            const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+            const sortedComponents = components
+                .map(c => [...c].sort((a, b) => a.localeCompare(b)))
+                .sort((a, b) => Math.min(...a.map(t => firstSeenIdx[t] ?? 99999)) - Math.min(...b.map(t => firstSeenIdx[t] ?? 99999)));
+
+            const teamToGroup = {};
+            const groups = sortedComponents.map((teamsInGroup, idx) => {
+                const group = letters[idx] || `G${idx + 1}`;
+                teamsInGroup.forEach(t => { teamToGroup[t] = group; });
+                return { group, teams: teamsInGroup };
+            });
+
+            return { teamToGroup, groups };
         }
 
         function initTeamStats(team) {
@@ -952,15 +1010,25 @@
         }
 
         function computeGroupTables() {
+            const inferred = inferGroupAssignments();
             const groups = {};
+
+            inferred.groups.forEach(g => {
+                groups[g.group] = groups[g.group] || {};
+                g.teams.forEach(team => {
+                    groups[g.group][team] = initTeamStats(team);
+                });
+            });
 
             allMatchesCache
                 .filter(m => m.is_finished)
                 .forEach(m => {
-                    const group = deriveGroupKeyByDate(m);
-                    if (!group) return;
-
                     const { home, away } = parseTeams(m.match_label);
+                    const homeGroup = inferred.teamToGroup[home];
+                    const awayGroup = inferred.teamToGroup[away];
+                    if (!homeGroup || homeGroup !== awayGroup) return;
+                    const group = homeGroup;
+
                     if (!groups[group]) groups[group] = {};
                     if (!groups[group][home]) groups[group][home] = initTeamStats(home);
                     if (!groups[group][away]) groups[group][away] = initTeamStats(away);
