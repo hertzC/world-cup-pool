@@ -44,7 +44,7 @@
         <!-- ── Header ─────────────────────────────────────── -->
         <div class="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 p-5 text-center shadow-xl">
             <h1 class="text-2xl font-black uppercase tracking-wider">⚽ Family World Cup Pool</h1>
-            <p class="text-xs text-indigo-100 font-medium mt-0.5">2026 Group Stage Predictions</p>
+            <p class="text-xs text-indigo-100 font-medium mt-0.5">2026 Predictions · Group Stage + Knockout</p>
         </div>
 
         <!-- ── Tab Bar ────────────────────────────────────── -->
@@ -93,6 +93,11 @@
                     <div id="leaderboard" class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                         <div class="animate-pulse bg-slate-700 h-20 rounded-xl col-span-4"></div>
                     </div>
+                    <div id="phaseChampionWrap" class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                        <div class="animate-pulse bg-slate-700 h-20 rounded-xl"></div>
+                        <div class="animate-pulse bg-slate-700 h-20 rounded-xl"></div>
+                        <div class="animate-pulse bg-slate-700 h-20 rounded-xl"></div>
+                    </div>
                     <div class="mt-3 bg-slate-900/45 border border-slate-700 rounded-xl p-3">
                         <div class="flex flex-wrap items-center gap-2">
                             <label for="recapAudioInput" class="text-[11px] font-bold px-3 py-1.5 rounded-full border border-fuchsia-600/60 text-fuchsia-300 bg-fuchsia-900/20 hover:bg-fuchsia-900/35 transition cursor-pointer">
@@ -128,6 +133,10 @@
                             <span class="w-9 h-9 shrink-0 bg-blue-600 text-white font-black rounded-lg flex items-center justify-center">+1</span>
                             <span class="text-sm text-slate-300">Exact goals for at least one team</span>
                         </div>
+                    </div>
+                    <div class="mt-3 pt-3 border-t border-slate-700/70 space-y-2">
+                        <p class="text-[10px] font-bold text-fuchsia-300 uppercase tracking-[0.18em]">Knockout Fun Mode</p>
+                        <p class="text-xs text-slate-300">Exact score = 8pts, correct outcome = +3, exact one-team goals = +1, correct goal difference = +1 bonus.</p>
                     </div>
                 </div>
                 </div>
@@ -457,8 +466,61 @@
         let recapAudioBuffer    = null;
         let recapAudioName      = '';
         let standingsView       = 'groups';
+        let knockoutRoundFilter = 'ALL';
+
+        const PHASE2_SCORING = {
+            group: { exact: 5, outcome: 2, oneTeamExact: 1, goalDiffBonus: 0 },
+            knockout: { exact: 8, outcome: 3, oneTeamExact: 1, goalDiffBonus: 1 }
+        };
 
         const STANDINGS_NOTES = [261.63, 329.63, 392.0, 523.25, 392.0, 329.63];
+
+        function isPlaceholderTeamName(team) {
+            const n = normalizeTeamName(team);
+            if (!n) return true;
+            return /^\d+(st|nd|rd|th)\s+[a-z]$/i.test(n)
+                || n.includes('winner of')
+                || n.includes('runner up')
+                || n.includes('tba')
+                || n.includes('group ');
+        }
+
+        function extractStageHint(match) {
+            const raw = [
+                match?.stage,
+                match?.phase,
+                match?.round,
+                match?.round_name,
+                match?.tournament_stage,
+                match?.matchday,
+                match?.match_label
+            ].filter(Boolean).join(' ').toLowerCase();
+
+            if (!raw) return null;
+            if (/group/.test(raw)) return 'group';
+            if (/knockout|round of|last\s*\d+|quarter|semi|final|playoff/.test(raw)) return 'knockout';
+            return null;
+        }
+
+        function classifyMatchStage(match, inferredGroups = null) {
+            const hinted = extractStageHint(match);
+            if (hinted) return hinted;
+
+            const { home, away } = parseTeams(match?.match_label || '');
+            if (!home || !away || home === '?' || away === '?') return 'group';
+            if (isPlaceholderTeamName(home) || isPlaceholderTeamName(away)) return 'knockout';
+
+            const inferred = inferredGroups || inferGroupAssignments();
+            const homeGroup = inferred.teamToGroup[home];
+            const awayGroup = inferred.teamToGroup[away];
+            if (homeGroup && awayGroup && homeGroup === awayGroup) return 'group';
+            return 'knockout';
+        }
+
+        function getScoringForMatch(match) {
+            const stage = classifyMatchStage(match);
+            return stage === 'knockout' ? PHASE2_SCORING.knockout : PHASE2_SCORING.group;
+        }
 
         function ensureAudioContext() {
             if (!audioCtx) {
@@ -639,7 +701,7 @@
                 group.matches.forEach(match => {
                     const preds = allPredictionsCache.filter(p => p.match_label === match.match_label);
                     preds.forEach(pred => {
-                        const pts = calcPoints(pred.pred_home, pred.pred_away, match.home_score, match.away_score);
+                        const pts = calcPoints(pred.pred_home, pred.pred_away, match.home_score, match.away_score, match);
                         scoreMap[pred.player_name] = (scoreMap[pred.player_name] || 0) + pts;
                     });
                 });
@@ -919,6 +981,11 @@
             updateStandingsViewUI();
         }
 
+        function setKnockoutRoundFilter(roundCode) {
+            knockoutRoundFilter = roundCode || 'ALL';
+            renderKnockoutProjection();
+        }
+
         // ── Filter pills ──────────────────────────────────────
         function filterMatches(f) {
             currentFilter = f;
@@ -968,7 +1035,10 @@
             const matches = [...allMatchesCache]
                 .filter(m => {
                     const { home, away } = parseTeams(m.match_label);
-                    return home && away && home !== '?' && away !== '?';
+                    if (!home || !away || home === '?' || away === '?') return false;
+                    if (isPlaceholderTeamName(home) || isPlaceholderTeamName(away)) return false;
+                    if (extractStageHint(m) === 'knockout') return false;
+                    return true;
                 })
                 .sort((a, b) => (a.id || 0) - (b.id || 0));
 
@@ -983,6 +1053,14 @@
                 teamToOpponents[away] = teamToOpponents[away] || new Set();
                 teamToMatchIds[home] = teamToMatchIds[home] || [];
                 teamToMatchIds[away] = teamToMatchIds[away] || [];
+
+                // Group-stage teams face 3 opponents. Ignore edges introducing a 4th opponent.
+                const homeAddsNewOpponent = !teamToOpponents[home].has(away);
+                const awayAddsNewOpponent = !teamToOpponents[away].has(home);
+                if ((homeAddsNewOpponent && teamToOpponents[home].size >= 3)
+                    || (awayAddsNewOpponent && teamToOpponents[away].size >= 3)) {
+                    return;
+                }
 
                 teamToOpponents[home].add(away);
                 teamToOpponents[away].add(home);
@@ -1061,6 +1139,7 @@
 
             allMatchesCache
                 .filter(m => m.is_finished)
+                .filter(m => classifyMatchStage(m, inferred) === 'group')
                 .sort((a, b) => getMatchSortTimestamp(a) - getMatchSortTimestamp(b) || (a.id || 0) - (b.id || 0))
                 .forEach(m => {
                     const { home, away } = parseTeams(m.match_label);
@@ -1196,33 +1275,33 @@
                 };
             });
 
-            const roundOf32 = [
-                ['A', 'B'], ['C', 'D'], ['E', 'F'], ['G', 'H'],
-                ['I', 'J'], ['K', 'L']
-            ].map(([g1, g2], idx) => ({
-                id: `R32-${idx * 2 + 1}`,
-                round: 'Last 32',
-                home: topTwoByGroup[g1]?.first || `1st ${g1}`,
-                away: topTwoByGroup[g2]?.second || `2nd ${g2}`,
-                note: `As it stands ${topTwoByGroup[g1]?.first || `1st ${g1}`} will play ${topTwoByGroup[g2]?.second || `2nd ${g2}`}`
-            })).flatMap((item, idx, list) => {
-                const pairIndex = Math.floor(idx / 2);
-                const [g1, g2] = [
-                    ['A', 'B'], ['C', 'D'], ['E', 'F'], ['G', 'H'], ['I', 'J'], ['K', 'L']
-                ][pairIndex] || ['A', 'B'];
-                const home = idx % 2 === 0
-                    ? (topTwoByGroup[g1]?.first || `1st ${g1}`)
-                    : (topTwoByGroup[g2]?.first || `1st ${g2}`);
-                const away = idx % 2 === 0
-                    ? (topTwoByGroup[g2]?.second || `2nd ${g2}`)
-                    : (topTwoByGroup[g1]?.second || `2nd ${g1}`);
-                return [{
-                    id: `R32-${idx + 1}`,
+            const groupPairs = [
+                ['A', 'B'], ['C', 'D'], ['E', 'F'],
+                ['G', 'H'], ['I', 'J'], ['K', 'L']
+            ];
+
+            const roundOf32 = [];
+            groupPairs.forEach(([g1, g2]) => {
+                const m1Home = topTwoByGroup[g1]?.first || `1st ${g1}`;
+                const m1Away = topTwoByGroup[g2]?.second || `2nd ${g2}`;
+                const m2Home = topTwoByGroup[g2]?.first || `1st ${g2}`;
+                const m2Away = topTwoByGroup[g1]?.second || `2nd ${g1}`;
+
+                roundOf32.push({
+                    id: `R32-${roundOf32.length + 1}`,
                     round: 'Last 32',
-                    home,
-                    away,
-                    note: `As it stands ${home} will play ${away}`
-                }];
+                    home: m1Home,
+                    away: m1Away,
+                    note: `As it stands ${m1Home} will play ${m1Away}`
+                });
+
+                roundOf32.push({
+                    id: `R32-${roundOf32.length + 1}`,
+                    round: 'Last 32',
+                    home: m2Home,
+                    away: m2Away,
+                    note: `As it stands ${m2Home} will play ${m2Away}`
+                });
             });
 
             if (!roundOf32.length) {
@@ -1230,109 +1309,161 @@
                 return;
             }
 
-            const round16 = [
-                ['R32-1', 'R32-2'], ['R32-3', 'R32-4'], ['R32-5', 'R32-6'],
-                ['R32-7', 'R32-8'], ['R32-9', 'R32-10'], ['R32-11', 'R32-12']
-            ].map((pair, idx) => ({
-                id: `R16-${idx + 1}`,
-                round: 'Last 16',
-                home: `Winner of ${pair[0]}`,
-                away: `Winner of ${pair[1]}`,
-                note: 'Projected winners advance here'
-            }));
+            function buildNextRound(sourceMatches, prefix, roundName, note) {
+                const items = [];
+                for (let i = 0; i < sourceMatches.length; i += 2) {
+                    const homeSource = sourceMatches[i];
+                    const awaySource = sourceMatches[i + 1];
+                    const hasPair = Boolean(awaySource);
+                    items.push({
+                        id: `${prefix}-${items.length + 1}`,
+                        round: roundName,
+                        home: `Winner of ${homeSource.id}`,
+                        away: hasPair ? `Winner of ${awaySource.id}` : 'Best remaining winner',
+                        note: hasPair ? note : 'One bracket slot will be finalized after balancing'
+                    });
+                }
+                return items;
+            }
 
-            const quarterFinals = [
-                ['R16-1', 'R16-2'], ['R16-3', 'R16-4'], ['R16-5', 'R16-6']
-            ].map((pair, idx) => ({
-                id: `QF-${idx + 1}`,
-                round: 'Quarter-finals',
-                home: `Winner of ${pair[0]}`,
-                away: `Winner of ${pair[1]}`,
-                note: 'Winner to the semi-finals'
-            }));
-
-            const semiFinals = [
-                ['QF-1', 'QF-2'], ['QF-3', 'QF-4']
-            ].map((pair, idx) => ({
-                id: `SF-${idx + 1}`,
-                round: 'Semi-finals',
-                home: `Winner of ${pair[0]}`,
-                away: `Winner of ${pair[1]}`,
-                note: 'Winner to the final'
-            }));
+            const round16 = buildNextRound(roundOf32, 'R16', 'Last 16', 'Projected winners advance here');
+            const quarterFinals = buildNextRound(round16, 'QF', 'Quarter-finals', 'Winner to the semi-finals');
+            const semiFinals = buildNextRound(quarterFinals, 'SF', 'Semi-finals', 'Winner to the final');
 
             const finalMatch = [{
                 id: 'F-1',
                 round: 'Final',
-                home: 'Winner of SF-1',
-                away: 'Winner of SF-2',
+                home: semiFinals[0] ? `Winner of ${semiFinals[0].id}` : 'Winner of SF-1',
+                away: semiFinals[1] ? `Winner of ${semiFinals[1].id}` : 'Winner of SF-2',
                 note: 'Trophy decider'
             }];
 
             const roundGroups = [
-                { title: 'Last 32', chips: 'Knockout Stage', items: roundOf32 },
-                { title: 'Last 16', chips: 'Round of 16', items: round16 },
-                { title: 'Quarter-finals', chips: 'QF', items: quarterFinals },
-                { title: 'Semi-finals', chips: 'SF', items: semiFinals },
-                { title: 'Final', chips: 'Title match', items: finalMatch }
+                { title: 'Last 32', chips: 'Knockout Stage', items: roundOf32, badge: 'R32' },
+                { title: 'Last 16', chips: 'Round of 16', items: round16, badge: 'R16' },
+                { title: 'Quarter-finals', chips: 'QF', items: quarterFinals, badge: 'QF' },
+                { title: 'Semi-finals', chips: 'SF', items: semiFinals, badge: 'SF' },
+                { title: 'Final', chips: 'Title match', items: finalMatch, badge: 'F' }
             ];
 
-            const roundChipHtml = roundGroups.map(r => `
-                <button type="button" class="shrink-0 text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1.5 rounded-full border ${r.title === 'Last 32' ? 'border-fuchsia-500 text-fuchsia-100 bg-fuchsia-700/30' : 'border-slate-600 text-slate-300 bg-slate-800'}">
-                    ${r.chips}
-                </button>
-            `).join('');
+            const roundFilters = [{ code: 'ALL', label: 'All' }, ...roundGroups.map(r => ({ code: r.badge, label: r.chips }))];
+            const roundChipHtml = roundFilters.map(f => {
+                const active = knockoutRoundFilter === f.code;
+                return `
+                    <button type="button" onclick="setKnockoutRoundFilter('${f.code}')" class="shrink-0 text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1.5 rounded-full border transition ${active ? 'border-fuchsia-500 text-fuchsia-100 bg-fuchsia-700/30' : 'border-slate-600 text-slate-300 bg-slate-800 hover:bg-slate-700'}">
+                        ${f.label}
+                    </button>
+                `;
+            }).join('');
+
+            const isRoundVisible = (badge) => knockoutRoundFilter === 'ALL' || knockoutRoundFilter === badge;
+
+            function splitForBracket(items) {
+                const mid = Math.ceil(items.length / 2);
+                return {
+                    left: items.slice(0, mid),
+                    right: items.slice(mid)
+                };
+            }
+
+            function fixtureCard(item, showRound) {
+                return `
+                    <div class="rounded-xl border border-slate-700/80 bg-slate-900/65 p-3 shadow-sm">
+                        <div class="flex items-center justify-between gap-2 mb-2">
+                            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-fuchsia-300">${item.id}</p>
+                            <p class="text-[10px] text-slate-500 uppercase tracking-[0.18em]">Projected</p>
+                        </div>
+                        <div class="space-y-1.5">
+                            <div class="text-xs font-semibold text-slate-100">${teamWithFlagHtml(item.home)}</div>
+                            <div class="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">vs</div>
+                            <div class="text-xs font-semibold text-slate-100">${teamWithFlagHtml(item.away)}</div>
+                        </div>
+                        ${showRound ? `<p class="mt-2 text-[10px] text-slate-500 uppercase tracking-[0.18em]">${item.round}</p>` : ''}
+                    </div>
+                `;
+            }
+
+            const roundsBySide = roundGroups.map(g => ({
+                ...g,
+                visible: isRoundVisible(g.badge),
+                ...splitForBracket(isRoundVisible(g.badge) ? g.items : [])
+            }));
+
+            const championLabel = `${teamWithFlagHtml(finalMatch[0].home)} vs ${teamWithFlagHtml(finalMatch[0].away)}`;
 
             wrap.innerHTML = `
                 <div class="bg-slate-950/35 border border-slate-700/80 rounded-2xl overflow-hidden">
                     <div class="px-4 py-3 border-b border-slate-700/70 bg-slate-900/70 flex items-center justify-between gap-3 flex-wrap">
                         <div>
                             <p class="text-xs font-black text-fuchsia-300 uppercase tracking-[0.22em]">Knockout Stage</p>
-                            <p class="text-[11px] text-slate-500 mt-1">BBC-style view of the bracket as it stands</p>
+                            <p class="text-[11px] text-slate-500 mt-1">Bracket projection based on current group table positions</p>
                         </div>
                         <div class="flex flex-wrap gap-2">${roundChipHtml}</div>
                     </div>
-                    <div class="p-4 space-y-5">
-                        ${roundGroups.map(section => `
-                            <section class="space-y-3">
-                                <div class="flex items-center justify-between gap-3">
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-[10px] font-black uppercase tracking-[0.22em] px-2.5 py-1 rounded-full border border-slate-600 text-slate-300 bg-slate-800">${section.chips}</span>
-                                        <h4 class="text-sm font-black text-slate-100 uppercase tracking-[0.16em]">${section.title}</h4>
+
+                    <div class="p-4 md:p-5">
+                        <div class="overflow-x-auto pb-2">
+                            <div class="min-w-[1080px] grid grid-cols-[1fr_1fr_220px_1fr_1fr] gap-4 items-start">
+                                <div class="space-y-3 ${roundsBySide[0].visible ? '' : 'opacity-35'}">
+                                    <div class="flex items-center justify-between">
+                                        <h4 class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-300">${roundsBySide[0].title}</h4>
+                                        <span class="text-[10px] font-black px-2 py-1 rounded-full border border-slate-600 text-slate-400 bg-slate-800">${roundsBySide[0].badge}</span>
                                     </div>
-                                    <span class="text-[10px] text-slate-500 uppercase tracking-[0.18em]">As it stands</span>
+                                    ${roundsBySide[0].left.map(item => fixtureCard(item, false)).join('')}
                                 </div>
-                                <div class="space-y-2.5">
-                                    ${section.items.map(item => `
-                                        <div class="rounded-xl border border-slate-700/70 bg-slate-900/50 px-3 py-3 shadow-sm">
-                                            <div class="flex items-center justify-between gap-3 mb-2">
-                                                <p class="text-[10px] font-black text-fuchsia-300 uppercase tracking-[0.22em]">${item.id}</p>
-                                                <p class="text-[10px] text-slate-500 uppercase tracking-[0.18em]">Projected</p>
-                                            </div>
-                                            <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                                                <div class="min-w-0">
-                                                    <div class="flex items-center gap-2 min-w-0">
-                                                        <span class="shrink-0 text-[10px] font-black px-2 py-1 rounded-full border border-slate-600 text-slate-400 bg-slate-800">HOME</span>
-                                                        <div class="min-w-0 text-sm font-semibold text-slate-100 truncate">${teamWithFlagHtml(item.home)}</div>
-                                                    </div>
-                                                </div>
-                                                <div class="text-center px-2">
-                                                    <div class="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500">vs</div>
-                                                    <div class="text-[10px] text-slate-600 mt-1">${item.round}</div>
-                                                </div>
-                                                <div class="min-w-0 text-right">
-                                                    <div class="flex items-center justify-end gap-2 min-w-0">
-                                                        <div class="min-w-0 text-sm font-semibold text-slate-100 truncate">${teamWithFlagHtml(item.away)}</div>
-                                                        <span class="shrink-0 text-[10px] font-black px-2 py-1 rounded-full border border-slate-600 text-slate-400 bg-slate-800">AWAY</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <p class="mt-2 text-[11px] text-slate-500">${item.note}</p>
+
+                                <div class="space-y-3 border-l border-r border-slate-800/80 px-3 ${roundsBySide[1].visible ? '' : 'opacity-35'}">
+                                    <div class="flex items-center justify-between">
+                                        <h4 class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-300">${roundsBySide[1].title}</h4>
+                                        <span class="text-[10px] font-black px-2 py-1 rounded-full border border-slate-600 text-slate-400 bg-slate-800">${roundsBySide[1].badge}</span>
+                                    </div>
+                                    ${roundsBySide[1].left.map(item => fixtureCard(item, false)).join('')}
+
+                                    <div class="pt-2 border-t border-slate-800/80 ${roundsBySide[2].visible ? '' : 'opacity-35'}">
+                                        <div class="flex items-center justify-between mb-3">
+                                            <h4 class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-300">${roundsBySide[2].title}</h4>
+                                            <span class="text-[10px] font-black px-2 py-1 rounded-full border border-slate-600 text-slate-400 bg-slate-800">${roundsBySide[2].badge}</span>
                                         </div>
-                                    `).join('')}
+                                        ${roundsBySide[2].left.map(item => fixtureCard(item, false)).join('')}
+                                    </div>
                                 </div>
-                            </section>
-                        `).join('')}
+
+                                <div class="self-center rounded-2xl border border-fuchsia-500/40 bg-gradient-to-b from-fuchsia-700 to-indigo-700 p-4 shadow-lg text-center ${(isRoundVisible('F') || knockoutRoundFilter === 'ALL') ? '' : 'opacity-35'}">
+                                    <p class="text-[10px] font-black uppercase tracking-[0.2em] text-fuchsia-100/85">FIFA World Cup</p>
+                                    <p class="text-xl font-black uppercase text-white leading-tight mt-1">Champion</p>
+                                    <div class="mt-3 rounded-xl bg-white/10 border border-white/20 px-3 py-2 text-xs text-fuchsia-100">${championLabel}</div>
+                                </div>
+
+                                <div class="space-y-3 border-l border-r border-slate-800/80 px-3 ${roundsBySide[2].visible ? '' : 'opacity-35'}">
+                                    <div class="flex items-center justify-between">
+                                        <h4 class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-300">${roundsBySide[2].title}</h4>
+                                        <span class="text-[10px] font-black px-2 py-1 rounded-full border border-slate-600 text-slate-400 bg-slate-800">${roundsBySide[2].badge}</span>
+                                    </div>
+                                    ${roundsBySide[2].right.map(item => fixtureCard(item, false)).join('')}
+
+                                    <div class="pt-2 border-t border-slate-800/80 ${roundsBySide[1].visible ? '' : 'opacity-35'}">
+                                        <div class="flex items-center justify-between mb-3">
+                                            <h4 class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-300">${roundsBySide[1].title}</h4>
+                                            <span class="text-[10px] font-black px-2 py-1 rounded-full border border-slate-600 text-slate-400 bg-slate-800">${roundsBySide[1].badge}</span>
+                                        </div>
+                                        ${roundsBySide[1].right.map(item => fixtureCard(item, false)).join('')}
+                                    </div>
+                                </div>
+
+                                <div class="space-y-3 ${roundsBySide[0].visible ? '' : 'opacity-35'}">
+                                    <div class="flex items-center justify-between">
+                                        <h4 class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-300">${roundsBySide[0].title}</h4>
+                                        <span class="text-[10px] font-black px-2 py-1 rounded-full border border-slate-600 text-slate-400 bg-slate-800">${roundsBySide[0].badge}</span>
+                                    </div>
+                                    ${roundsBySide[0].right.map(item => fixtureCard(item, false)).join('')}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 rounded-xl border border-slate-700/70 bg-slate-900/40 p-3">
+                            <p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1">Fixture notes</p>
+                            <p class="text-[11px] text-slate-500">This projection auto-fills from live group rankings. Any bracket balancing placeholders are updated once all groups complete.</p>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1455,7 +1586,7 @@
             if (!wrap) return;
 
             if (!matches || !matches.length) {
-                wrap.innerHTML = '<p class="text-[11px] text-slate-500">No matches in next 2 days.</p>';
+                wrap.innerHTML = '<p class="text-[11px] text-slate-500">No open matches right now.</p>';
                 return;
             }
 
@@ -1484,16 +1615,19 @@
             );
         }
 
-        function calcPoints(predH, predA, actH, actA) {
+        function calcPoints(predH, predA, actH, actA, match = null) {
             // Normalise to numbers in case DB returns strings
             predH = Number(predH); predA = Number(predA);
             actH  = Number(actH);  actA  = Number(actA);
-            if (predH === actH && predA === actA) return 5;
+            const scoring = getScoringForMatch(match);
+            if (predH === actH && predA === actA) return scoring.exact;
+
             let pts = 0;
             const pOut = predH > predA ? 'W' : predH < predA ? 'L' : 'D';
             const aOut = actH  > actA  ? 'W' : actH  < actA  ? 'L' : 'D';
-            if (pOut === aOut) pts += 2;
-            if (predH === actH || predA === actA) pts++;
+            if (pOut === aOut) pts += scoring.outcome;
+            if (predH === actH || predA === actA) pts += scoring.oneTeamExact;
+            if ((predH - predA) === (actH - actA)) pts += scoring.goalDiffBonus;
             return pts;
         }
 
@@ -1687,9 +1821,10 @@
         async function awardPointsForMatch(matchLabel, actH, actA) {
             const { data: preds, error: predErr } = await db.from('predictions').select('*').eq('match_label', matchLabel);
             if (predErr) throw new Error(predErr.message);
+            const match = allMatchesCache.find(m => m.match_label === matchLabel) || null;
 
             for (const p of preds || []) {
-                const earned = calcPoints(p.pred_home, p.pred_away, actH, actA);
+                const earned = calcPoints(p.pred_home, p.pred_away, actH, actA, match);
                 if (earned <= 0) continue;
                 const { data: member, error: memberErr } = await db.from('family_members')
                     .select('total_score').eq('name', p.player_name).single();
@@ -1874,12 +2009,98 @@
             allPlayersCache     = playerRes.data || [];
 
             renderLeaderboard();
+            renderPhaseChampions();
             renderGroupTables();
             renderKnockoutProjection();
             renderUserSelect();
             renderMatchCards();
             populateHighlightDropdown();
             populatePlayerVideoSelect();
+        }
+
+        function getPlayerDirectoryMap() {
+            const names = new Set(allPlayersCache.map(p => p.name));
+            allPredictionsCache.forEach(p => {
+                if (p.player_name) names.add(p.player_name);
+            });
+
+            const map = {};
+            Array.from(names).forEach(name => {
+                map[name] = allPlayersCache.find(p => p.name === name) || { name, total_score: 0 };
+            });
+            return map;
+        }
+
+        function computePhaseScores() {
+            const inferred = inferGroupAssignments();
+            const playersByName = getPlayerDirectoryMap();
+            const scoreMap = {};
+
+            Object.keys(playersByName).forEach(name => {
+                scoreMap[name] = { group: 0, knockout: 0, overall: 0 };
+            });
+
+            const finishedMatches = [...allMatchesCache]
+                .filter(m => m.is_finished)
+                .sort((a, b) => getMatchSortTimestamp(a) - getMatchSortTimestamp(b) || (a.id || 0) - (b.id || 0));
+
+            finishedMatches.forEach(match => {
+                const stage = classifyMatchStage(match, inferred);
+                const matchPreds = allPredictionsCache.filter(p => p.match_label === match.match_label);
+                matchPreds.forEach(pred => {
+                    if (!scoreMap[pred.player_name]) {
+                        scoreMap[pred.player_name] = { group: 0, knockout: 0, overall: 0 };
+                    }
+                    const pts = calcPoints(pred.pred_home, pred.pred_away, match.home_score, match.away_score, match);
+                    if (pts <= 0) return;
+                    if (stage === 'knockout') scoreMap[pred.player_name].knockout += pts;
+                    else scoreMap[pred.player_name].group += pts;
+                    scoreMap[pred.player_name].overall += pts;
+                });
+            });
+
+            const ranking = Object.entries(scoreMap)
+                .map(([name, score]) => ({
+                    ...(playersByName[name] || { name }),
+                    name,
+                    total_score: score.overall,
+                    phaseScore: score
+                }))
+                .sort((a, b) => b.total_score - a.total_score || a.name.localeCompare(b.name));
+
+            return { scoreMap, ranking };
+        }
+
+        function renderPhaseChampions() {
+            const wrap = document.getElementById('phaseChampionWrap');
+            if (!wrap) return;
+
+            const { scoreMap, ranking } = computePhaseScores();
+            if (!ranking.length) {
+                wrap.innerHTML = '<p class="text-sm text-slate-500 sm:col-span-3">No players yet.</p>';
+                return;
+            }
+
+            const byMetric = (metric) => [...ranking].sort((a, b) => (scoreMap[b.name]?.[metric] || 0) - (scoreMap[a.name]?.[metric] || 0) || a.name.localeCompare(b.name));
+            const groupTop = byMetric('group')[0];
+            const knockoutTop = byMetric('knockout')[0];
+            const overallTop = ranking[0];
+
+            function championTile(label, icon, player, points, colorClass) {
+                return `
+                    <div class="rounded-xl border border-slate-700 bg-slate-900/55 p-3">
+                        <p class="text-[10px] font-black uppercase tracking-[0.2em] ${colorClass}">${icon} ${label}</p>
+                        <p class="text-sm font-bold text-slate-100 mt-1.5 truncate">${player?.name || 'TBA'}</p>
+                        <p class="text-[11px] text-slate-400 mt-0.5">${points || 0} pts</p>
+                    </div>
+                `;
+            }
+
+            wrap.innerHTML = [
+                championTile('Group Champion', '🥇', groupTop, scoreMap[groupTop?.name || '']?.group, 'text-cyan-300'),
+                championTile('Knockout Champion', '🔥', knockoutTop, scoreMap[knockoutTop?.name || '']?.knockout, 'text-fuchsia-300'),
+                championTile('Overall Champion', '👑', overallTop, scoreMap[overallTop?.name || '']?.overall, 'text-amber-300')
+            ].join('');
         }
 
         function getPlayerPowerTitles() {
@@ -1902,9 +2123,9 @@
                 const consensus = Object.entries(outcomeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'D';
 
                 matchPreds.forEach(p => {
-                    const pts = calcPoints(p.pred_home, p.pred_away, m.home_score, m.away_score);
+                    const pts = calcPoints(p.pred_home, p.pred_away, m.home_score, m.away_score, m);
                     if (pts > 0 && stats[p.player_name]) stats[p.player_name].scored++;
-                    if (pts === 5 && stats[p.player_name]) stats[p.player_name].exact++;
+                    if (pts === getScoringForMatch(m).exact && stats[p.player_name]) stats[p.player_name].exact++;
 
                     const predOut = Number(p.pred_home) > Number(p.pred_away) ? 'W' : Number(p.pred_home) < Number(p.pred_away) ? 'L' : 'D';
                     if (stats[p.player_name] && predOut !== consensus && predOut === actualOut) {
@@ -2291,7 +2512,9 @@
         // ── Leaderboard ───────────────────────────────────────
         function renderLeaderboard() {
             const container = document.getElementById('leaderboard');
-            if (!allPlayersCache.length) {
+            const { ranking: sortedPlayers } = computePhaseScores();
+
+            if (!sortedPlayers.length) {
                 container.className = 'text-center';
                 container.innerHTML = `<p class="text-slate-500 text-sm py-4">No players found</p>`;
                 return;
@@ -2299,11 +2522,11 @@
 
             const titleMap = getPlayerPowerTitles();
             const currentRanks = {};
-            allPlayersCache.forEach((p, i) => { currentRanks[p.name] = i + 1; });
+            sortedPlayers.forEach((p, i) => { currentRanks[p.name] = i + 1; });
 
             container.className = ''; // override grid; layout is self-contained
-            const top3 = allPlayersCache.slice(0, 3);
-            const rest  = allPlayersCache.slice(3);
+            const top3 = sortedPlayers.slice(0, 3);
+            const rest  = sortedPlayers.slice(3);
 
             function podiumCard(player, rank, delay) {
                 if (!player) return '<div></div>';
@@ -2409,7 +2632,7 @@
             ${restHtml}`;
 
             setTimeout(animateScores, 60);
-            if (allPlayersCache[0]?.total_score > 0) launchConfetti();
+            if (sortedPlayers[0]?.total_score > 0) launchConfetti();
             previousRanks = currentRanks;
         }
 
@@ -2421,7 +2644,7 @@
                 const m = settled[i];
                 const pred = allPredictionsCache.find(p => p.player_name === playerName && p.match_label === m.match_label);
                 if (!pred) break;
-                const pts = calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score);
+                const pts = calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score, m);
                 if (pts > 0) streak++; else break;
             }
             return streak;
@@ -2465,6 +2688,7 @@
         function renderMatchCards() {
             const container = document.getElementById('matchesList');
             if (!container) return;
+            const inferred = inferGroupAssignments();
 
             let matches = allMatchesCache;
             if (currentFilter === 'upcoming') matches = matches.filter(m => !m.is_finished);
@@ -2508,6 +2732,10 @@
             container.innerHTML = matches.map(m => {
                 const { home, away } = parseTeams(m.match_label);
                 const preds = allPredictionsCache.filter(p => p.match_label === m.match_label);
+                const stage = classifyMatchStage(m, inferred);
+                const stageBadge = stage === 'knockout'
+                    ? '<span class="shrink-0 bg-fuchsia-900/60 text-fuchsia-300 border border-fuchsia-700/50 text-[10px] font-bold px-2.5 py-1 rounded-full">KO Stage</span>'
+                    : '<span class="shrink-0 bg-cyan-900/60 text-cyan-300 border border-cyan-700/50 text-[10px] font-bold px-2.5 py-1 rounded-full">Group Stage</span>';
 
                 const statusBadge = m.is_finished
                     ? `<span class="shrink-0 bg-emerald-900/70 text-emerald-300 border border-emerald-700/50 text-xs font-bold px-2.5 py-1 rounded-full">✅ ${m.home_score} – ${m.away_score}</span>`
@@ -2528,8 +2756,8 @@
                     }
                     let ptsLine = '';
                     if (m.is_finished) {
-                        const pts = calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score);
-                        const col = pts === 5 ? 'text-amber-400' : pts > 0 ? 'text-emerald-400' : 'text-slate-500';
+                        const pts = calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score, m);
+                        const col = pts === getScoringForMatch(m).exact ? 'text-amber-400' : pts > 0 ? 'text-emerald-400' : 'text-slate-500';
                         ptsLine = `<span class="text-[10px] font-black ${col} mt-0.5">${pts}pt${pts !== 1 ? 's' : ''}</span>`;
                     }
                     return `<div class="flex flex-col items-center bg-slate-700 rounded-xl px-3 py-2 min-w-[68px] border border-slate-600">
@@ -2650,7 +2878,7 @@
                             <p class="font-bold text-white">${teamWithFlagHtml(home)} <span class="text-slate-500 font-normal text-sm">vs</span> ${teamWithFlagHtml(away)}</p>
                             ${dateLine}
                         </div>
-                        ${statusBadge}
+                        <div class="flex items-center gap-2 flex-wrap">${stageBadge}${statusBadge}</div>
                     </div>
                     <div class="px-4 py-3">
                         <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Predictions</p>
@@ -2689,8 +2917,11 @@
             const nowHKT = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
             const endHKT = new Date(nowHKT);
             endHKT.setDate(endHKT.getDate() + 2);
+            const inferred = inferGroupAssignments();
 
             const predictCandidates = open.filter(m => {
+                const stage = classifyMatchStage(m, inferred);
+                if (stage === 'knockout') return true;
                 if (!m.match_date) return false;
                 const d = new Date(new Date(m.match_date).toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
                 return d >= nowHKT && d < endHKT;
@@ -2700,13 +2931,15 @@
             admin.innerHTML = '<option value="">Choose match…</option>';
 
             if (!predictCandidates.length) {
-                sel.innerHTML = '<option value="">No matches in next 2 days</option>';
+                sel.innerHTML = '<option value="">No open matches</option>';
                 renderPredictQuickPick([], null);
             } else {
                 predictCandidates.forEach(m => {
                     const { home, away } = parseTeams(m.match_label);
                     const when = formatHKT(m.match_date);
-                    const label = `${teamWithFlagText(home)} vs ${teamWithFlagText(away)}${when ? ` · ${when}` : ''}`;
+                    const stage = classifyMatchStage(m, inferred);
+                    const stageTag = stage === 'knockout' ? 'KO' : 'GS';
+                    const label = `[${stageTag}] ${teamWithFlagText(home)} vs ${teamWithFlagText(away)}${when ? ` · ${when}` : ''}`;
                     sel.innerHTML += `<option value="${m.match_label}" ${m.match_label === currentPredict ? 'selected' : ''}>${label}</option>`;
                 });
                 const selected = currentPredict && predictCandidates.some(m => m.match_label === currentPredict)
@@ -2884,9 +3117,10 @@
 
             // 3. Calculate and award points
             const summary = [];
+            const matchObj = allMatchesCache.find(m => m.match_label === match) || null;
             if (preds && preds.length > 0) {
                 for (const p of preds) {
-                    const earned = calcPoints(p.pred_home, p.pred_away, actH, actA);
+                    const earned = calcPoints(p.pred_home, p.pred_away, actH, actA, matchObj);
                     summary.push(`${p.player_name}: ${p.pred_home}–${p.pred_away} → ${earned}pt${earned !== 1 ? 's' : ''}`);
                     if (earned > 0) {
                         const { data: member } = await db.from('family_members')
@@ -2996,7 +3230,7 @@
             for (const match of finished) {
                 const matchPreds = (allPreds || []).filter(p => p.match_label === match.match_label);
                 for (const p of matchPreds) {
-                    const earned = calcPoints(p.pred_home, p.pred_away, match.home_score, match.away_score);
+                    const earned = calcPoints(p.pred_home, p.pred_away, match.home_score, match.away_score, match);
                     if (earned > 0) {
                         totals[p.player_name] = (totals[p.player_name] || 0) + earned;
                     }
@@ -3111,10 +3345,11 @@
             const settled = allMatchesCache.filter(m => m.is_finished);
             const player  = allPlayersCache.find(p => p.name === playerName);
             if (!player) return;
+            const { scoreMap, ranking } = computePhaseScores();
 
             const rows = settled.map(m => {
                 const pred = allPredictionsCache.find(p => p.player_name === playerName && p.match_label === m.match_label);
-                const pts  = pred ? calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score) : null;
+                const pts  = pred ? calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score, m) : null;
                 const { home, away } = parseTeams(m.match_label);
 
                 let ptsBadge = `<span class="text-slate-600 text-xs">–</span>`;
@@ -3123,7 +3358,7 @@
 
                 if (pred !== undefined && pts !== null) {
                     predText = `<span class="font-bold text-white">${pred.pred_home}–${pred.pred_away}</span>`;
-                    if (pts === 5) {
+                    if (pts === getScoringForMatch(m).exact) {
                         ptsBadge = `<span class="bg-amber-500 text-slate-900 font-black text-xs px-2 py-0.5 rounded-full">⭐ 5</span>`;
                         rowBg = 'bg-amber-900/20';
                     } else if (pts > 0) {
@@ -3148,15 +3383,16 @@
             const predsPlayed = settled.filter(m => allPredictionsCache.find(p => p.player_name === playerName && p.match_label === m.match_label));
             const exactCount  = predsPlayed.filter(m => {
                 const pred = allPredictionsCache.find(p => p.player_name === playerName && p.match_label === m.match_label);
-                return calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score) === 5;
+                return calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score, m) === getScoringForMatch(m).exact;
             }).length;
             const scoringCount = predsPlayed.filter(m => {
                 const pred = allPredictionsCache.find(p => p.player_name === playerName && p.match_label === m.match_label);
-                return calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score) > 0;
+                return calcPoints(pred.pred_home, pred.pred_away, m.home_score, m.away_score, m) > 0;
             }).length;
 
             const streak = getPlayerStreak(playerName);
-            const rank   = allPlayersCache.findIndex(p => p.name === playerName) + 1;
+            const rank   = ranking.findIndex(p => p.name === playerName) + 1;
+            const overallPts = scoreMap[playerName]?.overall || 0;
 
             const rankEmoji = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
 
@@ -3166,7 +3402,7 @@
                         ${playerAvatarHtml(player, 'w-14 h-14 text-4xl')}
                         <div>
                             <p class="font-black text-lg text-white leading-tight">${playerName}</p>
-                            <p class="text-xs text-slate-400">${rankEmoji} · ${player.total_score} pts total</p>
+                            <p class="text-xs text-slate-400">${rankEmoji} · ${overallPts} pts total</p>
                         </div>
                     </div>
                     <button onclick="closePlayerModal()" class="text-slate-500 hover:text-white text-xl leading-none p-1">✕</button>
