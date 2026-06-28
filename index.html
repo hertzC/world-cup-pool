@@ -473,7 +473,38 @@
             knockout: { exact: 8, outcome: 3, oneTeamExact: 1, goalDiffBonus: 1 }
         };
 
+        const KNOCKOUT_FIXTURE_SEED = [
+            { match_label: 'South Africa vs Canada', match_date: '2026-06-29T04:00:00+09:00' },
+            { match_label: 'Brazil vs Japan', match_date: '2026-06-30T02:00:00+09:00' },
+            { match_label: 'Germany vs Paraguay', match_date: '2026-06-30T05:30:00+09:00' },
+            { match_label: 'Netherlands vs Morocco', match_date: '2026-06-30T10:00:00+09:00' },
+            { match_label: 'Ivory Coast vs Norway', match_date: '2026-07-01T02:00:00+09:00' },
+            { match_label: 'France vs Sweden', match_date: '2026-07-01T06:00:00+09:00' },
+            { match_label: 'Mexico vs Ecuador', match_date: '2026-07-01T10:00:00+09:00' },
+            { match_label: 'England vs Congo DR', match_date: '2026-07-02T01:00:00+09:00' },
+            { match_label: 'Belgium vs Senegal', match_date: '2026-07-02T05:00:00+09:00' },
+            { match_label: 'USA vs Bosnia Herzegovina', match_date: '2026-07-02T09:00:00+09:00' },
+            { match_label: 'Spain vs Austria', match_date: '2026-07-03T04:00:00+09:00' },
+            { match_label: 'Portugal vs Croatia', match_date: '2026-07-03T08:00:00+09:00' },
+            { match_label: 'Switzerland vs Algeria', match_date: '2026-07-03T12:00:00+09:00' },
+            { match_label: 'Australia vs Egypt', match_date: '2026-07-04T03:00:00+09:00' },
+            { match_label: 'Argentina vs Cape Verde', match_date: '2026-07-04T07:00:00+09:00' },
+            { match_label: 'Colombia vs Ghana', match_date: '2026-07-04T10:30:00+09:00' }
+        ];
+
         const STANDINGS_NOTES = [261.63, 329.63, 392.0, 523.25, 392.0, 329.63];
+
+        function getSeededKnockoutFixtures() {
+            return KNOCKOUT_FIXTURE_SEED.map((m, idx) => ({
+                id: -(idx + 1),
+                match_label: m.match_label,
+                match_date: m.match_date,
+                is_finished: false,
+                home_score: null,
+                away_score: null,
+                source: 'seed'
+            }));
+        }
 
         function isPlaceholderTeamName(team) {
             const n = normalizeTeamName(team);
@@ -1267,6 +1298,7 @@
             if (!wrap) return;
 
             const tables = computeGroupTables();
+            const inferred = inferGroupAssignments();
             const topTwoByGroup = {};
             tables.forEach(({ group, rows }) => {
                 topTwoByGroup[group] = {
@@ -1274,6 +1306,102 @@
                     second: rows[1]?.team || null
                 };
             });
+
+            const knockoutMatches = [...allMatchesCache]
+                .filter(m => classifyMatchStage(m, inferred) === 'knockout')
+                .sort((a, b) => getMatchSortTimestamp(a) - getMatchSortTimestamp(b) || (a.id || 0) - (b.id || 0));
+
+            if (knockoutMatches.length) {
+                const roundOrder = ['ラウンド32', 'Round of 32', 'Last 32', 'ラウンド16', 'Round of 16', 'Last 16', '準々決勝', 'Quarter-finals', '準決勝', 'Semi-finals', '3位決定戦', 'Third-place', '決勝', 'Final'];
+                const byRound = {};
+                knockoutMatches.forEach(match => {
+                    const raw = `${match.round || ''} ${match.stage || ''} ${match.phase || ''} ${match.tournament_stage || ''} ${match.match_label || ''}`;
+                    let round = 'Last 32';
+                    if (/ラウンド16|round\s*of\s*16|last\s*16/i.test(raw)) round = 'Last 16';
+                    else if (/準々決勝|quarter/i.test(raw)) round = 'Quarter-finals';
+                    else if (/準決勝|semi/i.test(raw)) round = 'Semi-finals';
+                    else if (/3位|third/i.test(raw)) round = 'Third-place';
+                    else if (/決勝|final/i.test(raw)) round = 'Final';
+
+                    if (!byRound[round]) byRound[round] = [];
+                    byRound[round].push(match);
+                });
+
+                const roundMap = {
+                    'Last 32': { chip: 'Knockout Stage', badge: 'R32' },
+                    'Last 16': { chip: 'Round of 16', badge: 'R16' },
+                    'Quarter-finals': { chip: 'QF', badge: 'QF' },
+                    'Semi-finals': { chip: 'SF', badge: 'SF' },
+                    'Final': { chip: 'Title match', badge: 'F' }
+                };
+
+                const roundGroupsActual = ['Last 32', 'Last 16', 'Quarter-finals', 'Semi-finals', 'Final']
+                    .filter(r => (byRound[r] || []).length)
+                    .map(r => ({
+                        title: r,
+                        chips: roundMap[r].chip,
+                        badge: roundMap[r].badge,
+                        items: byRound[r].map((m, idx) => {
+                            const { home, away } = parseTeams(m.match_label);
+                            return {
+                                id: `${roundMap[r].badge}-${idx + 1}`,
+                                round: r,
+                                home,
+                                away,
+                                note: m.is_finished
+                                    ? `Final score: ${m.home_score} - ${m.away_score}`
+                                    : (formatHKT(m.match_date) ? `Kickoff: ${formatHKT(m.match_date)} HKT` : 'Scheduled fixture')
+                            };
+                        })
+                    }));
+
+                if (roundGroupsActual.length) {
+                    const roundFilters = [{ code: 'ALL', label: 'All' }, ...roundGroupsActual.map(r => ({ code: r.badge, label: r.chips }))];
+                    const roundChipHtml = roundFilters.map(f => {
+                        const active = knockoutRoundFilter === f.code;
+                        return `
+                            <button type="button" onclick="setKnockoutRoundFilter('${f.code}')" class="shrink-0 text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1.5 rounded-full border transition ${active ? 'border-fuchsia-500 text-fuchsia-100 bg-fuchsia-700/30' : 'border-slate-600 text-slate-300 bg-slate-800 hover:bg-slate-700'}">
+                                ${f.label}
+                            </button>
+                        `;
+                    }).join('');
+
+                    const visibleGroups = roundGroupsActual.filter(g => knockoutRoundFilter === 'ALL' || g.badge === knockoutRoundFilter);
+                    wrap.innerHTML = `
+                        <div class="bg-slate-950/35 border border-slate-700/80 rounded-2xl overflow-hidden">
+                            <div class="px-4 py-3 border-b border-slate-700/70 bg-slate-900/70 flex items-center justify-between gap-3 flex-wrap">
+                                <div>
+                                    <p class="text-xs font-black text-fuchsia-300 uppercase tracking-[0.22em]">Knockout Stage</p>
+                                    <p class="text-[11px] text-slate-500 mt-1">Live knockout fixtures from updated schedule</p>
+                                </div>
+                                <div class="flex flex-wrap gap-2">${roundChipHtml}</div>
+                            </div>
+                            <div class="p-4 md:p-5 space-y-4">
+                                ${visibleGroups.map(section => `
+                                    <section class="space-y-2.5">
+                                        <div class="flex items-center justify-between">
+                                            <h4 class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-300">${section.title}</h4>
+                                            <span class="text-[10px] font-black px-2 py-1 rounded-full border border-slate-600 text-slate-400 bg-slate-800">${section.badge}</span>
+                                        </div>
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                                            ${section.items.map(item => `
+                                                <div class="rounded-xl border border-slate-700/70 bg-slate-900/55 p-3">
+                                                    <p class="text-[10px] font-black uppercase tracking-[0.2em] text-fuchsia-300 mb-1.5">${item.id}</p>
+                                                    <p class="text-sm font-semibold text-slate-100">${teamWithFlagHtml(item.home)}</p>
+                                                    <p class="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] my-1">vs</p>
+                                                    <p class="text-sm font-semibold text-slate-100">${teamWithFlagHtml(item.away)}</p>
+                                                    <p class="text-[11px] text-slate-500 mt-2">${item.note}</p>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    </section>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                    return;
+                }
+            }
 
             const groupPairs = [
                 ['A', 'B'], ['C', 'D'], ['E', 'F'],
@@ -2007,6 +2135,13 @@
             allMatchesCache     = matchRes.data  || [];
             allPredictionsCache = predRes.data   || [];
             allPlayersCache     = playerRes.data || [];
+
+            const existingLabels = new Set(allMatchesCache.map(m => m.match_label));
+            const seededExtras = getSeededKnockoutFixtures().filter(m => !existingLabels.has(m.match_label));
+            if (seededExtras.length) {
+                allMatchesCache = [...allMatchesCache, ...seededExtras]
+                    .sort((a, b) => getMatchSortTimestamp(a) - getMatchSortTimestamp(b) || (a.id || 0) - (b.id || 0));
+            }
 
             renderLeaderboard();
             renderPhaseChampions();
@@ -2906,12 +3041,18 @@
             const admin = document.getElementById('adminMatchSelect');
             const currentPredict = sel.value;
             const currentAdmin = admin.value;
+            const openReal = open || [];
+            const openForPredict = openReal.length
+                ? openReal
+                : allMatchesCache.filter(m => !m.is_finished);
 
-            if (!open || !open.length) {
-                sel.innerHTML   = '<option value="">No upcoming matches</option>';
-                admin.innerHTML = '<option value="">No active matches</option>';
+            if (!openForPredict.length) {
+                sel.innerHTML = '<option value="">No upcoming matches</option>';
                 renderPredictQuickPick([], null);
-                return;
+            }
+
+            if (!openReal.length) {
+                admin.innerHTML = '<option value="">No active matches</option>';
             }
 
             const nowHKT = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
@@ -2919,7 +3060,7 @@
             endHKT.setDate(endHKT.getDate() + 2);
             const inferred = inferGroupAssignments();
 
-            const predictCandidates = open.filter(m => {
+            const predictCandidates = openForPredict.filter(m => {
                 const stage = classifyMatchStage(m, inferred);
                 if (stage === 'knockout') return true;
                 if (!m.match_date) return false;
@@ -2928,7 +3069,7 @@
             });
 
             sel.innerHTML   = '<option value="">Choose match…</option>';
-            admin.innerHTML = '<option value="">Choose match…</option>';
+            if (openReal.length) admin.innerHTML = '<option value="">Choose match…</option>';
 
             if (!predictCandidates.length) {
                 sel.innerHTML = '<option value="">No open matches</option>';
@@ -2950,7 +3091,7 @@
                 sel.dispatchEvent(new Event('change'));
             }
 
-            open.forEach(m => {
+            openReal.forEach(m => {
                 admin.innerHTML += `<option value="${m.match_label}" ${m.match_label === currentAdmin ? 'selected' : ''}>${m.match_label}</option>`;
             });
         }
