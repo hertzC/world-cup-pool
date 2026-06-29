@@ -2112,7 +2112,8 @@
         // ── Init ──────────────────────────────────────────────
         async function initApp() {
             updateAdminAccessUI();
-            await Promise.all([fetchAllData(), populateMatchDropdowns()]);
+            await fetchAllData();
+            await populateMatchDropdowns();
             updateStandingsViewUI();
             updateStandingsMusicButton();
             updateRecapButtonState();
