@@ -492,6 +492,8 @@
             { match_label: 'Colombia vs Ghana', match_date: '2026-07-04T10:30:00+09:00' }
         ];
 
+        const LOCAL_SEEDED_PREDICTIONS_KEY = 'worldCupPoolSeedPredictions';
+
         const STANDINGS_NOTES = [261.63, 329.63, 392.0, 523.25, 392.0, 329.63];
 
         function getSeededKnockoutFixtures() {
@@ -507,6 +509,41 @@
                 away_score: null,
                 source: 'seed'
             }));
+        }
+
+        function getLocalSeededPredictions() {
+            try {
+                const raw = localStorage.getItem(LOCAL_SEEDED_PREDICTIONS_KEY);
+                const parsed = raw ? JSON.parse(raw) : [];
+                if (!Array.isArray(parsed)) return [];
+                return parsed.filter(p => p && p.player_name && p.match_label).map(p => ({
+                    ...p,
+                    source: 'local-seed'
+                }));
+            } catch (error) {
+                console.warn('Could not load local seeded predictions:', error);
+                return [];
+            }
+        }
+
+        function setLocalSeededPredictions(predictions) {
+            try {
+                localStorage.setItem(LOCAL_SEEDED_PREDICTIONS_KEY, JSON.stringify(predictions));
+            } catch (error) {
+                console.warn('Could not store local seeded predictions:', error);
+            }
+        }
+
+        function saveLocalSeededPrediction(payload) {
+            const existing = getLocalSeededPredictions();
+            const key = `${payload.player_name}||${payload.match_label}`;
+            const next = existing.filter(p => `${p.player_name}||${p.match_label}` !== key);
+            next.push({
+                ...payload,
+                source: 'local-seed',
+                saved_at: new Date().toISOString()
+            });
+            setLocalSeededPredictions(next);
         }
 
         function isPlaceholderTeamName(team) {
@@ -2140,6 +2177,15 @@
             allPredictionsCache = predRes.data   || [];
             allPlayersCache     = playerRes.data || [];
 
+            const localSeededPredictions = getLocalSeededPredictions();
+            if (localSeededPredictions.length) {
+                const existingPredictionKeys = new Set(allPredictionsCache.map(p => `${p.player_name}||${p.match_label}`));
+                const localExtras = localSeededPredictions.filter(p => !existingPredictionKeys.has(`${p.player_name}||${p.match_label}`));
+                if (localExtras.length) {
+                    allPredictionsCache = [...allPredictionsCache, ...localExtras];
+                }
+            }
+
             const existingLabels = new Set(allMatchesCache.map(m => m.match_label));
             const seededExtras = getSeededKnockoutFixtures().filter(m => !existingLabels.has(m.match_label));
             if (seededExtras.length) {
@@ -3160,11 +3206,38 @@
             const match  = document.getElementById('matchSelect').value;
             const h = parseInt(document.getElementById('predHome').value);
             const a = parseInt(document.getElementById('predAway').value);
+            const matchObj = allMatchesCache.find(m => m.match_label === match) || null;
 
-            const { error } = await db.from('predictions').upsert(
-                { player_name: player, match_label: match, pred_home: h, pred_away: a },
-                { onConflict: 'player_name,match_label' }
-            );
+            if (!player || !match || Number.isNaN(h) || Number.isNaN(a)) {
+                alert('Pick a player, a match, and both scores before saving.');
+                return;
+            }
+
+            const payload = { player_name: player, match_label: match, pred_home: h, pred_away: a };
+
+            if (matchObj?.source === 'seed') {
+                saveLocalSeededPrediction(payload);
+                alert(`🎯 Prediction saved locally for ${player}. This knockout fixture is seeded in the UI and will sync once it exists in the database.`);
+                document.getElementById('predHome').value = '';
+                document.getElementById('predAway').value = '';
+                await fetchAllData();
+                return;
+            }
+
+            const existing = allPredictionsCache.find(p => p.player_name === player && p.match_label === match);
+            let error = null;
+
+            if (existing?.id) {
+                ({ error } = await db.from('predictions').update(payload).eq('id', existing.id));
+            } else {
+                ({ error } = await db.from('predictions').insert([payload]));
+                if (error && error.code === '23505') {
+                    ({ error } = await db.from('predictions')
+                        .update(payload)
+                        .eq('player_name', player)
+                        .eq('match_label', match));
+                }
+            }
 
             if (!error) {
                 alert(`🎯 Prediction saved for ${player}!`);
@@ -3172,7 +3245,16 @@
                 document.getElementById('predAway').value = '';
                 await fetchAllData();
             } else {
-                alert("Error saving prediction: " + error.message);
+                if (error.code === '23503' || /foreign key/i.test(error.message || '')) {
+                    saveLocalSeededPrediction(payload);
+                    alert(`🎯 Prediction saved locally for ${player}. The selected match is not in the database yet, so Supabase rejected the write.`);
+                    document.getElementById('predHome').value = '';
+                    document.getElementById('predAway').value = '';
+                    await fetchAllData();
+                    return;
+                }
+
+                alert('Error saving prediction: ' + error.message);
                 console.error(error);
             }
         });
