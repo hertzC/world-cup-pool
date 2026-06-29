@@ -499,6 +499,9 @@
                 id: -(idx + 1),
                 match_label: m.match_label,
                 match_date: m.match_date,
+                stage: 'knockout',
+                round: 'Last 32',
+                tournament_stage: 'knockout',
                 is_finished: false,
                 home_score: null,
                 away_score: null,
@@ -1065,6 +1068,7 @@
         function inferGroupAssignments() {
             const matches = [...allMatchesCache]
                 .filter(m => {
+                    if (m?.source === 'seed') return false;
                     const { home, away } = parseTeams(m.match_label);
                     if (!home || !away || home === '?' || away === '?') return false;
                     if (isPlaceholderTeamName(home) || isPlaceholderTeamName(away)) return false;
