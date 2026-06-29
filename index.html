@@ -542,6 +542,105 @@
             }
         }
 
+        async function ensureSeededFixturesInDb() {
+            try {
+                const { data: existingRows, error: existingErr } = await db
+                    .from('match_results')
+                    .select('match_label')
+                    .in('match_label', KNOCKOUT_FIXTURE_SEED.map(m => m.match_label));
+
+                if (existingErr) {
+                    console.warn('Could not check seeded fixture presence:', existingErr);
+                    return false;
+                }
+
+                const existingSet = new Set((existingRows || []).map(r => r.match_label));
+                const missing = KNOCKOUT_FIXTURE_SEED.filter(m => !existingSet.has(m.match_label));
+                if (!missing.length) return true;
+
+                const richPayload = missing.map(m => ({
+                    match_label: m.match_label,
+                    match_date: m.match_date,
+                    is_finished: false,
+                    home_score: null,
+                    away_score: null,
+                    stage: 'knockout',
+                    round: 'Last 32',
+                    tournament_stage: 'knockout'
+                }));
+
+                const basicPayload = missing.map(m => ({
+                    match_label: m.match_label,
+                    match_date: m.match_date,
+                    is_finished: false,
+                    home_score: null,
+                    away_score: null
+                }));
+
+                let insertErr = null;
+                const richInsert = await db.from('match_results').insert(richPayload);
+                insertErr = richInsert.error || null;
+
+                // Some DB schemas may not have stage/round columns; retry with core columns only.
+                if (insertErr) {
+                    const basicInsert = await db.from('match_results').insert(basicPayload);
+                    insertErr = basicInsert.error || null;
+                }
+
+                if (insertErr) {
+                    console.warn('Could not insert seeded fixtures into DB:', insertErr);
+                    return false;
+                }
+
+                return true;
+            } catch (error) {
+                console.warn('ensureSeededFixturesInDb failed:', error);
+                return false;
+            }
+        }
+
+        async function migrateLocalSeededPredictionsToDb() {
+            const localPredictions = getLocalSeededPredictions();
+            if (!localPredictions.length) return;
+
+            const { data: matchRows, error: matchErr } = await db
+                .from('match_results')
+                .select('match_label')
+                .in('match_label', KNOCKOUT_FIXTURE_SEED.map(m => m.match_label));
+
+            if (matchErr) {
+                console.warn('Could not read seeded fixtures for migration:', matchErr);
+                return;
+            }
+
+            const dbMatchLabels = new Set((matchRows || []).map(r => r.match_label));
+            const migratable = localPredictions.filter(p => dbMatchLabels.has(p.match_label));
+            if (!migratable.length) return;
+
+            const { error: upsertErr } = await db.from('predictions').upsert(
+                migratable.map(p => ({
+                    player_name: p.player_name,
+                    match_label: p.match_label,
+                    pred_home: p.pred_home,
+                    pred_away: p.pred_away
+                })),
+                { onConflict: 'player_name,match_label' }
+            );
+
+            if (upsertErr) {
+                console.warn('Could not migrate local seeded predictions to DB:', upsertErr);
+                return;
+            }
+
+            const migratableKeys = new Set(migratable.map(p => `${p.player_name}||${p.match_label}`));
+            const remaining = localPredictions.filter(p => !migratableKeys.has(`${p.player_name}||${p.match_label}`));
+            try {
+                localStorage.setItem(LOCAL_SEEDED_PREDICTIONS_KEY, JSON.stringify(remaining));
+            } catch (error) {
+                console.warn('Could not trim migrated local seeded predictions:', error);
+            }
+        }
+
         function isPlaceholderTeamName(team) {
             const n = normalizeTeamName(team);
             if (!n) return true;
@@ -2160,6 +2259,8 @@
 
         // ── Fetch all data → update caches → re-render ────────
         async function fetchAllData() {
+            await ensureSeededFixturesInDb();
+
             const [matchRes, predRes, playerRes] = await Promise.all([
                 db.from('match_results').select('*').order('id', { ascending: true }),
                 db.from('predictions').select('*'),
@@ -2188,6 +2289,22 @@
             if (seededExtras.length) {
                 allMatchesCache = [...allMatchesCache, ...seededExtras]
                     .sort((a, b) => getMatchSortTimestamp(a) - getMatchSortTimestamp(b) || (a.id || 0) - (b.id || 0));
+            }
+
+            await migrateLocalSeededPredictionsToDb();
+            if (getLocalSeededPredictions().length !== localSeededPredictions.length) {
+                const refreshedPreds = await db.from('predictions').select('*');
+                if (!refreshedPreds.error) {
+                    allPredictionsCache = refreshedPreds.data || [];
+                }
+                const mergedLocal = getLocalSeededPredictions();
+                if (mergedLocal.length) {
+                    const keys = new Set(allPredictionsCache.map(p => `${p.player_name}||${p.match_label}`));
+                    const extras = mergedLocal.filter(p => !keys.has(`${p.player_name}||${p.match_label}`));
+                    if (extras.length) {
+                        allPredictionsCache = [...allPredictionsCache, ...extras];
+                    }
+                }
             }
 
             renderLeaderboard();
